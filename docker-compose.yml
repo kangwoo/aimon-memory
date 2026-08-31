@@ -1,0 +1,22 @@
+# Local dependencies. The image is pgvector's own build of Postgres 16 rather than stock postgres
+# plus a manual extension install, so `CREATE EXTENSION vector` works on a fresh volume.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dyad-postgres
+    environment:
+      POSTGRES_DB: dyad
+      POSTGRES_USER: dyad
+      POSTGRES_PASSWORD: dyad
+    ports:
+      - "5432:5432"
+    volumes:
+      - dyad-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dyad -d dyad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dyad-postgres:

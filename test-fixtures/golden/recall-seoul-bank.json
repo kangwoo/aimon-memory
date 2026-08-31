@@ -1,0 +1,53 @@
+{
+  "analyzed_query" : "seoul bank",
+  "candidates_considered" : 4,
+  "hits" : [ {
+    "content" : "alice works at a bank in seoul gangnam",
+    "level" : "explicit",
+    "times_derived" : 5,
+    "sem" : 0.5,
+    "kw" : 0.092241,
+    "ent" : 0.7064,
+    "reinf" : 0.641803,
+    "rec" : 0.962224,
+    "lvl" : 1.0,
+    "score" : 0.481581,
+    "matched_entities" : [ "seoul" ]
+  }, {
+    "content" : "alice enjoys hiking in the mountains near seoul",
+    "level" : "explicit",
+    "times_derived" : 1,
+    "sem" : 0.25,
+    "kw" : 0.044931,
+    "ent" : 0.7064,
+    "reinf" : 0.409384,
+    "rec" : 0.462937,
+    "lvl" : 1.0,
+    "score" : 0.302614,
+    "matched_entities" : [ "seoul" ]
+  }, {
+    "content" : "alice drinks coffee every morning",
+    "level" : "explicit",
+    "times_derived" : 12,
+    "sem" : 0.0,
+    "kw" : 0.0,
+    "ent" : 0.0,
+    "reinf" : 0.719491,
+    "rec" : 0.996157,
+    "lvl" : 1.0,
+    "score" : 0.127367,
+    "matched_entities" : [ ]
+  }, {
+    "content" : "alice prefers routine over spontaneity",
+    "level" : "inductive",
+    "times_derived" : 2,
+    "sem" : 0.0,
+    "kw" : 0.0,
+    "ent" : 0.0,
+    "reinf" : 0.523495,
+    "rec" : 0.890899,
+    "lvl" : 0.8,
+    "score" : 0.102425,
+    "matched_entities" : [ ]
+  } ]
+}

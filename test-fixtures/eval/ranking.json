@@ -1,0 +1,384 @@
+{
+  "name": "ranking",
+  "note": "Graded relevance over one pair's memory. 3 answers the question, 2 is strongly relevant, 1 is related, absent is irrelevant. Judgements are the only part of the ranking story that encodes what a person actually wanted, so they are data a reviewer can argue with rather than assertions buried in a test.",
+  "corpus": [
+    {
+      "id": "c01",
+      "content": "앨리스는 서울 강남의 핀테크 회사에서 백엔드 개발자로 일한다",
+      "level": "explicit",
+      "entities": [
+        "서울",
+        "강남"
+      ],
+      "timesDerived": 5,
+      "daysAgo": 20
+    },
+    {
+      "id": "c02",
+      "content": "앨리스는 2024년까지 부산의 은행에서 일했다",
+      "level": "explicit",
+      "entities": [
+        "부산"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 400
+    },
+    {
+      "id": "c03",
+      "content": "앨리스는 매일 지하철 2호선으로 출근한다",
+      "level": "explicit",
+      "entities": [
+        "지하철 2호선"
+      ],
+      "timesDerived": 8,
+      "daysAgo": 3
+    },
+    {
+      "id": "c04",
+      "content": "앨리스의 회사는 주 2회 재택근무를 허용한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 3,
+      "daysAgo": 40
+    },
+    {
+      "id": "c05",
+      "content": "앨리스는 커피보다 차를 선호한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 6,
+      "daysAgo": 10
+    },
+    {
+      "id": "c06",
+      "content": "앨리스는 매운 음식을 잘 먹지 못한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 4,
+      "daysAgo": 60
+    },
+    {
+      "id": "c07",
+      "content": "앨리스는 아침을 거르는 편이다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 120
+    },
+    {
+      "id": "c08",
+      "content": "앨리스는 작년 여름 제주도로 휴가를 갔다",
+      "level": "explicit",
+      "entities": [
+        "제주도"
+      ],
+      "timesDerived": 1,
+      "daysAgo": 300
+    },
+    {
+      "id": "c09",
+      "content": "앨리스는 다음 달 오사카행 항공권을 예약했다",
+      "level": "explicit",
+      "entities": [
+        "오사카"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 15
+    },
+    {
+      "id": "c10",
+      "content": "앨리스는 비행기에서 창가 자리를 선호한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 3,
+      "daysAgo": 200
+    },
+    {
+      "id": "c11",
+      "content": "앨리스는 밥과 같은 팀에서 일한다",
+      "level": "explicit",
+      "entities": [
+        "밥"
+      ],
+      "timesDerived": 4,
+      "daysAgo": 30
+    },
+    {
+      "id": "c12",
+      "content": "앨리스의 동생은 대구에 산다",
+      "level": "explicit",
+      "entities": [
+        "대구"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 90
+    },
+    {
+      "id": "c13",
+      "content": "앨리스는 주말마다 등산을 한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 5,
+      "daysAgo": 7
+    },
+    {
+      "id": "c14",
+      "content": "앨리스는 북한산을 가장 자주 오른다",
+      "level": "explicit",
+      "entities": [
+        "북한산"
+      ],
+      "timesDerived": 3,
+      "daysAgo": 25
+    },
+    {
+      "id": "c15",
+      "content": "앨리스는 무릎 부상 때문에 달리기를 그만두었다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 150
+    },
+    {
+      "id": "c16",
+      "content": "앨리스는 IntelliJ IDEA를 주 개발 도구로 쓴다",
+      "level": "explicit",
+      "entities": [
+        "IntelliJ IDEA"
+      ],
+      "timesDerived": 4,
+      "daysAgo": 45
+    },
+    {
+      "id": "c17",
+      "content": "앨리스는 Kotlin보다 Java를 편하게 여긴다",
+      "level": "explicit",
+      "entities": [
+        "Java",
+        "Kotlin"
+      ],
+      "timesDerived": 3,
+      "daysAgo": 70
+    },
+    {
+      "id": "c18",
+      "content": "앨리스는 PostgreSQL 성능 튜닝 경험이 있다",
+      "level": "explicit",
+      "entities": [
+        "PostgreSQL"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 100
+    },
+    {
+      "id": "c19",
+      "content": "앨리스는 규칙적인 생활을 선호하는 편이다",
+      "level": "inductive",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 30,
+      "confidence": 0.6
+    },
+    {
+      "id": "c20",
+      "content": "앨리스는 서울에 거주한다",
+      "level": "deductive",
+      "entities": [
+        "서울"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 20,
+      "sourceIds": [
+        "c01",
+        "c03"
+      ]
+    },
+    {
+      "id": "c21",
+      "content": "앨리스는 고양이를 키운다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 3,
+      "daysAgo": 50
+    },
+    {
+      "id": "c22",
+      "content": "앨리스의 고양이 이름은 나비다",
+      "level": "explicit",
+      "entities": [
+        "나비"
+      ],
+      "timesDerived": 5,
+      "daysAgo": 50
+    },
+    {
+      "id": "c23",
+      "content": "앨리스는 알레르기 때문에 강아지를 키우지 못한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 220
+    },
+    {
+      "id": "c24",
+      "content": "앨리스는 매년 건강검진을 받는다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 340
+    },
+    {
+      "id": "c25",
+      "content": "앨리스는 클래식 음악을 즐겨 듣는다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 80
+    },
+    {
+      "id": "c26",
+      "content": "앨리스는 재즈 공연을 보러 간 적이 있다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 260
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "query": "앨리스는 어디에서 일하나요",
+      "judgements": {
+        "c01": 3,
+        "c20": 2,
+        "c04": 1,
+        "c02": 1
+      }
+    },
+    {
+      "id": "q02",
+      "query": "앨리스는 어떻게 출근하나요",
+      "judgements": {
+        "c03": 3,
+        "c01": 1
+      }
+    },
+    {
+      "id": "q03",
+      "query": "강남",
+      "judgements": {
+        "c01": 3,
+        "c20": 1
+      }
+    },
+    {
+      "id": "q04",
+      "query": "앨리스는 커피를 마시나요",
+      "judgements": {
+        "c05": 3
+      }
+    },
+    {
+      "id": "q05",
+      "query": "앨리스의 여행 계획",
+      "judgements": {
+        "c09": 3,
+        "c08": 2,
+        "c10": 1
+      }
+    },
+    {
+      "id": "q06",
+      "query": "제주도",
+      "judgements": {
+        "c08": 3
+      }
+    },
+    {
+      "id": "q07",
+      "query": "앨리스의 회사 동료",
+      "judgements": {
+        "c11": 3,
+        "c01": 1,
+        "c04": 1
+      }
+    },
+    {
+      "id": "q08",
+      "query": "앨리스의 취미",
+      "judgements": {
+        "c13": 3,
+        "c14": 2,
+        "c25": 2,
+        "c26": 1
+      }
+    },
+    {
+      "id": "q09",
+      "query": "등산",
+      "judgements": {
+        "c13": 3,
+        "c14": 3
+      }
+    },
+    {
+      "id": "q10",
+      "query": "앨리스가 사용하는 개발 도구",
+      "judgements": {
+        "c16": 3,
+        "c17": 2,
+        "c18": 1
+      }
+    },
+    {
+      "id": "q11",
+      "query": "앨리스의 반려동물",
+      "judgements": {
+        "c21": 3,
+        "c22": 3,
+        "c23": 1
+      }
+    },
+    {
+      "id": "q12",
+      "query": "앨리스의 건강 상태",
+      "judgements": {
+        "c15": 2,
+        "c24": 2,
+        "c23": 1
+      }
+    },
+    {
+      "id": "q13",
+      "query": "부산",
+      "judgements": {
+        "c02": 3
+      }
+    },
+    {
+      "id": "q14",
+      "query": "앨리스는 매운 음식을 좋아하나요",
+      "judgements": {
+        "c06": 3
+      }
+    },
+    {
+      "id": "q15",
+      "query": "앨리스는 어디에 사나요",
+      "judgements": {
+        "c20": 3,
+        "c01": 2,
+        "c12": 1
+      }
+    },
+    {
+      "id": "q16",
+      "query": "앨리스의 식습관",
+      "judgements": {
+        "c05": 2,
+        "c06": 2,
+        "c07": 3
+      }
+    }
+  ]
+}

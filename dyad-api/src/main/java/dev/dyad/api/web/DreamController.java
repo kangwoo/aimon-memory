@@ -1,0 +1,123 @@
+package dev.dyad.api.web;
+
+import dev.dyad.api.Bounds;
+import dev.dyad.api.dto.Dtos;
+import dev.dyad.api.dto.Requests;
+import dev.dyad.core.ConflictException;
+import dev.dyad.core.key.PairKey;
+import dev.dyad.core.key.TaskType;
+import dev.dyad.core.key.WorkUnitKey;
+import dev.dyad.memory.dream.DreamerService;
+import dev.dyad.memory.dream.PeerCardService;
+import dev.dyad.store.repo.DreamRepository;
+import dev.dyad.store.repo.QueueRepository;
+import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** Dream scheduling and the peer card. */
+@RestController
+public class DreamController {
+
+    private final DreamerService dreamer;
+    private final DreamRepository dreams;
+    private final PeerCardService cards;
+    private final QueueRepository queue;
+
+    public DreamController(
+            DreamerService dreamer,
+            DreamRepository dreams,
+            PeerCardService cards,
+            QueueRepository queue) {
+        this.dreamer = dreamer;
+        this.dreams = dreams;
+        this.cards = cards;
+        this.queue = queue;
+    }
+
+    /**
+     * Schedule a dream now, bypassing the thresholds but not the one-in-flight rule.
+     *
+     * <p>Returns 409 when one is already running for the pair. The database decides that, via the
+     * partial unique index — this endpoint and the automatic scheduler race constantly, and the
+     * loser has to find out from a constraint rather than from a prior read.
+     */
+    @PostMapping("/v1/workspaces/{workspace}/dreams")
+    public Dtos.DreamResponse schedule(
+            @PathVariable String workspace, @Valid @RequestBody Requests.ScheduleDream body) {
+        PairKey pair = new PairKey(workspace, body.observer(), body.observed());
+        DreamRepository.DreamType type =
+                "card_refresh".equalsIgnoreCase(body.type())
+                        ? DreamRepository.DreamType.CARD_REFRESH
+                        : DreamRepository.DreamType.CONSOLIDATE;
+
+        DreamRepository.Dream dream =
+                dreamer
+                        .scheduleNow(pair, type)
+                        .orElseThrow(() -> new ConflictException("a dream is already in flight for " + pair));
+
+        queue.enqueue(
+                new WorkUnitKey(
+                        type == DreamRepository.DreamType.CARD_REFRESH ? TaskType.CARD_REFRESH : TaskType.DREAM,
+                        workspace,
+                        null,
+                        pair.observer(),
+                        pair.observed()),
+                Map.of("dream_id", dream.id()),
+                0);
+        return toResponse(dream);
+    }
+
+    @GetMapping("/v1/workspaces/{workspace}/dreams")
+    public List<Dtos.DreamResponse> list(
+            @PathVariable String workspace,
+            @RequestParam String observer,
+            @RequestParam String observed,
+            @RequestParam(defaultValue = "20") int limit) {
+        return dreams.forPair(new PairKey(workspace, observer, observed), Bounds.history(limit)).stream()
+                .map(DreamController::toResponse)
+                .toList();
+    }
+
+    @GetMapping("/v1/workspaces/{workspace}/peer-card")
+    public Dtos.PeerCardResponse card(
+            @PathVariable String workspace, @RequestParam String observer, @RequestParam String observed) {
+        PairKey pair = new PairKey(workspace, observer, observed);
+        return cards.find(pair)
+                .map(card -> new Dtos.PeerCardResponse(observer, observed, card.lines(), card.updatedAt()))
+                .orElse(new Dtos.PeerCardResponse(observer, observed, List.of(), null));
+    }
+
+    /**
+     * Regenerate the card synchronously.
+     *
+     * <p>One cheap model call, no tools, and it does not advance the dreamer's counters — refreshing a
+     * card must not consume the budget meant for the pass that produces new knowledge.
+     */
+    @PostMapping("/v1/workspaces/{workspace}/peer-card/refresh")
+    public Dtos.PeerCardResponse refresh(
+            @PathVariable String workspace, @RequestParam String observer, @RequestParam String observed) {
+        PairKey pair = new PairKey(workspace, observer, observed);
+        List<String> lines = cards.refresh(pair);
+        return new Dtos.PeerCardResponse(observer, observed, lines, java.time.Instant.now());
+    }
+
+    private static Dtos.DreamResponse toResponse(DreamRepository.Dream dream) {
+        return new Dtos.DreamResponse(
+                dream.id(),
+                dream.observer(),
+                dream.observed(),
+                dream.dreamType(),
+                dream.status(),
+                dream.produced(),
+                dream.error(),
+                dream.createdAt(),
+                dream.completedAt());
+    }
+}

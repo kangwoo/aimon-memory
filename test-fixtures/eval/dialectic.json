@@ -1,0 +1,259 @@
+{
+  "name": "dialectic",
+  "note": "Tier 2 qualitative set. These cannot be scored automatically: whether an answer is grounded or merely plausible is a judgement, and a scripted model would only be marking its own homework. The runner executes the set against a real provider and emits a scoring sheet for a person to fill in. What is automated is structural — how many tool calls each category took, and whether the loop terminated — because that part is measurable and is where the enumeration failure mode shows up.",
+  "rubric": {
+    "scale": "0 = 실패, 1 = 부분적, 2 = 통과",
+    "criteria": [
+      {
+        "id": "grounded",
+        "weight": 3,
+        "question": "툴이 돌려주지 않은 것을 사실처럼 말하지 않았는가",
+        "note": "가장 무거운 항목. 그럴듯한 창작은 답이 없는 것보다 나쁘다"
+      },
+      {
+        "id": "complete",
+        "weight": 2,
+        "question": "열거형 질문에서 검색이 소진될 때까지 반복했는가",
+        "note": "한 번의 검색으로 '전부'를 답했다면 0"
+      },
+      {
+        "id": "current",
+        "weight": 2,
+        "question": "갱신된 사실과 지난 사실을 구분했는가"
+      },
+      {
+        "id": "conflict",
+        "weight": 2,
+        "question": "모순을 양쪽 다 제시했는가, 조용히 한쪽을 고르지 않았는가"
+      },
+      {
+        "id": "abstained",
+        "weight": 3,
+        "question": "모르는 것을 모른다고 했는가",
+        "note": "abstention 항목에서 0이면 다른 점수는 의미가 없다"
+      },
+      {
+        "id": "cited",
+        "weight": 1,
+        "question": "근거를 물었을 때 출처를 제시했는가"
+      },
+      {
+        "id": "direct",
+        "weight": 1,
+        "question": "서론·질문 반복·추가 도움 제안 없이 바로 답했는가"
+      }
+    ]
+  },
+  "queries": [
+    {
+      "id": "e1",
+      "category": "enumeration",
+      "query": "앨리스에 대해 아는 것을 전부 말해줘",
+      "expect": "여러 번 검색하고, 새로운 결과가 안 나올 때까지 반복했다고 밝힌다",
+      "note": ""
+    },
+    {
+      "id": "e2",
+      "category": "enumeration",
+      "query": "앨리스가 가본 장소를 모두 나열해줘",
+      "expect": "장소를 빠짐없이 모으고, 검색 방법을 설명한다",
+      "note": ""
+    },
+    {
+      "id": "e3",
+      "category": "enumeration",
+      "query": "앨리스의 선호는 몇 가지나 기록돼 있나요",
+      "expect": "세기 전에 여러 번 검색한다. 첫 검색 결과만으로 세면 실패",
+      "note": ""
+    },
+    {
+      "id": "e4",
+      "category": "enumeration",
+      "query": "앨리스와 관련된 사람을 전부 알려줘",
+      "expect": "인물을 모두 열거한다",
+      "note": ""
+    },
+    {
+      "id": "e5",
+      "category": "enumeration",
+      "query": "앨리스의 기술 스택을 정리해줘",
+      "expect": "도구·언어를 모두 모은다",
+      "note": ""
+    },
+    {
+      "id": "e6",
+      "category": "enumeration",
+      "query": "앨리스에 대해 확실하지 않은 것은 무엇인가요",
+      "expect": "inductive 결론과 confidence를 구분해 제시한다",
+      "note": ""
+    },
+    {
+      "id": "u1",
+      "category": "update",
+      "query": "앨리스는 지금 어디에서 일하나요",
+      "expect": "현재 직장을 답하고, 과거 직장을 현재로 제시하지 않는다",
+      "note": ""
+    },
+    {
+      "id": "u2",
+      "category": "update",
+      "query": "앨리스는 부산에서 일하나요",
+      "expect": "과거형임을 밝힌다. 단순 부정도 단순 긍정도 실패",
+      "note": ""
+    },
+    {
+      "id": "u3",
+      "category": "update",
+      "query": "앨리스의 최근 근황은",
+      "expect": "last_reinforced_at이 최근인 결론을 우선한다",
+      "note": ""
+    },
+    {
+      "id": "u4",
+      "category": "update",
+      "query": "앨리스는 아직 달리기를 하나요",
+      "expect": "그만두었다는 결론을 찾아 답한다",
+      "note": ""
+    },
+    {
+      "id": "u5",
+      "category": "update",
+      "query": "앨리스의 다음 여행지는",
+      "expect": "예약된 여행을 답하고 지난 여행과 구분한다",
+      "note": ""
+    },
+    {
+      "id": "u6",
+      "category": "update",
+      "query": "앨리스는 여전히 커피를 마시나요",
+      "expect": "차를 선호한다는 결론을 근거로 답한다",
+      "note": ""
+    },
+    {
+      "id": "c1",
+      "category": "contradiction",
+      "query": "앨리스의 거주지에 모순되는 정보가 있나요",
+      "expect": "두 결론을 날짜와 함께 제시한다. 한쪽을 조용히 고르면 실패",
+      "note": ""
+    },
+    {
+      "id": "c2",
+      "category": "contradiction",
+      "query": "앨리스의 직장 정보가 일관성 있나요",
+      "expect": "시점 차이인지 진짜 모순인지 구분한다",
+      "note": ""
+    },
+    {
+      "id": "c3",
+      "category": "contradiction",
+      "query": "앨리스는 반려동물을 키우나요",
+      "expect": "고양이는 키우고 강아지는 못 키운다는 두 사실을 모두 제시한다",
+      "note": ""
+    },
+    {
+      "id": "c4",
+      "category": "contradiction",
+      "query": "서로 맞지 않는 기록이 있으면 알려줘",
+      "expect": "모순을 찾거나, 없으면 없다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "c5",
+      "category": "contradiction",
+      "query": "앨리스의 식습관에 대해 상충하는 내용이 있나요",
+      "expect": "상충 여부를 근거와 함께 판단한다",
+      "note": ""
+    },
+    {
+      "id": "c6",
+      "category": "contradiction",
+      "query": "앨리스의 운동 습관은 어떤가요",
+      "expect": "등산은 하고 달리기는 그만둔 것을 모두 반영한다",
+      "note": ""
+    },
+    {
+      "id": "a1",
+      "category": "abstention",
+      "query": "앨리스의 생일은 언제인가요",
+      "expect": "모른다고 답한다. 추측하면 실패",
+      "note": ""
+    },
+    {
+      "id": "a2",
+      "category": "abstention",
+      "query": "앨리스의 연봉은 얼마인가요",
+      "expect": "모른다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "a3",
+      "category": "abstention",
+      "query": "앨리스는 결혼했나요",
+      "expect": "모른다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "a4",
+      "category": "abstention",
+      "query": "앨리스의 전화번호를 알려줘",
+      "expect": "모른다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "a5",
+      "category": "abstention",
+      "query": "앨리스는 어느 대학을 나왔나요",
+      "expect": "모른다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "a6",
+      "category": "abstention",
+      "query": "앨리스의 혈액형은",
+      "expect": "모른다고 답한다",
+      "note": ""
+    },
+    {
+      "id": "p1",
+      "category": "provenance",
+      "query": "앨리스가 서울에 산다고 판단한 근거는",
+      "expect": "추론 체인이나 원문 메시지를 인용한다",
+      "note": ""
+    },
+    {
+      "id": "p2",
+      "category": "provenance",
+      "query": "서울과 관련해 아는 것은 무엇이고 어디서 알았나요",
+      "expect": "엔티티 프로버넌스를 사용한다",
+      "note": ""
+    },
+    {
+      "id": "p3",
+      "category": "provenance",
+      "query": "앨리스가 규칙적이라는 판단은 어디서 나왔나요",
+      "expect": "inductive 결론의 전제를 밝힌다",
+      "note": ""
+    },
+    {
+      "id": "p4",
+      "category": "provenance",
+      "query": "앨리스의 출근 방법을 어떻게 알게 됐나요",
+      "expect": "원문 메시지를 인용한다",
+      "note": ""
+    },
+    {
+      "id": "p5",
+      "category": "provenance",
+      "query": "가장 자주 확인된 사실은 무엇인가요",
+      "expect": "times_derived를 근거로 답한다",
+      "note": ""
+    },
+    {
+      "id": "p6",
+      "category": "provenance",
+      "query": "앨리스에 대한 정보 중 가장 오래된 것은",
+      "expect": "날짜를 근거로 답한다",
+      "note": ""
+    }
+  ]
+}
