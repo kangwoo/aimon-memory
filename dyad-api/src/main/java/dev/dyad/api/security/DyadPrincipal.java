@@ -31,4 +31,18 @@ public record DyadPrincipal(
             case SESSION -> name.equals(session);
         };
     }
+
+    /**
+     * True when this token may write a message attributed to {@code name}.
+     *
+     * <p>Wider than {@link #canReachPeer} on purpose. A session token names a conversation rather
+     * than a participant, and a conversation has several — transcribing all of them is the entire job
+     * of the token handed to whatever is running the chat. A token that <em>does</em> name a peer is
+     * that peer, and must not be able to sign someone else's name to a message: everything downstream
+     * treats the speaker as established fact, fanning it out into every observer's memory and deriving
+     * conclusions about them from it.
+     */
+    public boolean canSpeakAs(String name) {
+        return peer == null || name.equals(peer);
+    }
 }

@@ -208,6 +208,11 @@ public class ConclusionRepository implements ConclusionStore {
      * <p>The second half of the same fix: a candidate that only the keyword path found still has a
      * genuine semantic score, and the fusion formula is only comparable if every candidate is scored
      * on every signal.
+     *
+     * <p>Scoped and filtered like every other read here, even though today's only caller hands it a
+     * candidate set that is already pair-scoped and alive. It is a public method on a class whose
+     * header promises no query omits the pair, and that promise is what the next person to add a
+     * caller will rely on — a scope that holds only because of who happens to call it is not one.
      */
     public Map<String, Double> semanticScores(PairKey pair, float[] q, List<String> ids) {
         if (ids.isEmpty() || q == null) {
@@ -215,10 +220,15 @@ public class ConclusionRepository implements ConclusionStore {
         }
         String vector = Vectors.toLiteral(q);
         Map<String, Double> out = new LinkedHashMap<>();
+        List<Object> params = new ArrayList<>();
+        params.add(vector);
+        params.addAll(pairParams(pair));
+        params.add(ids.toArray(String[]::new));
         jdbc.sql(
                         "SELECT c.id AS id, (c.embedding <=> ?::vector) AS distance FROM conclusions c"
-                                + " WHERE c.workspace_name = ? AND c.id = ANY (?) AND c.embedding IS NOT NULL")
-                .params(vector, pair.workspaceName(), ids.toArray(String[]::new))
+                                + " WHERE " + PAIR_SCOPE + " AND " + ALIVE
+                                + " AND c.id = ANY (?) AND c.embedding IS NOT NULL")
+                .params(params)
                 .query((rs, i) -> Map.entry(rs.getString("id"), rs.getDouble("distance")))
                 .list()
                 .forEach(entry -> out.put(entry.getKey(), Vectors.similarityFromDistance(entry.getValue())));

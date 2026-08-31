@@ -3,9 +3,12 @@ package dev.dyad.api.web;
 import dev.dyad.api.Bounds;
 import dev.dyad.api.dto.Dtos;
 import dev.dyad.api.dto.Requests;
+import dev.dyad.api.security.DyadPrincipal;
+import dev.dyad.api.security.PairScope;
 import dev.dyad.core.NotFoundException;
 import dev.dyad.core.filter.Filter;
 import dev.dyad.core.key.PairKey;
+import dev.dyad.core.model.Conclusion;
 import dev.dyad.core.model.Actor;
 import dev.dyad.core.model.EventType;
 import dev.dyad.memory.derive.ConclusionWriter;
@@ -38,6 +41,7 @@ public class ConclusionController {
     private final EntityPipeline entities;
     private final EventLogRepository events;
     private final ProvenanceService provenance;
+    private final PairScope pairs;
 
     public ConclusionController(
             ConclusionRepository conclusions,
@@ -46,7 +50,8 @@ public class ConclusionController {
             ConclusionWriter writer,
             EntityPipeline entities,
             EventLogRepository events,
-            ProvenanceService provenance) {
+            ProvenanceService provenance,
+            PairScope pairs) {
         this.conclusions = conclusions;
         this.peers = peers;
         this.sessions = sessions;
@@ -54,16 +59,18 @@ public class ConclusionController {
         this.entities = entities;
         this.events = events;
         this.provenance = provenance;
+        this.pairs = pairs;
     }
 
     @GetMapping("/v1/workspaces/{workspace}/conclusions")
     public Dtos.PageResponse<Dtos.ConclusionResponse> list(
             @PathVariable String workspace,
+            DyadPrincipal principal,
             @RequestParam String observer,
             @RequestParam String observed,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        PairKey pair = new PairKey(workspace, observer, observed);
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
         return Dtos.PageResponse.of(
                 conclusions.list(pair, Filter.ALL, Bounds.page(page), Bounds.size(size)),
                 Dtos.ConclusionResponse::of);
@@ -78,8 +85,10 @@ public class ConclusionController {
      */
     @PostMapping("/v1/workspaces/{workspace}/conclusions")
     public Dtos.ConclusionResponse create(
-            @PathVariable String workspace, @Valid @RequestBody Requests.CreateConclusion body) {
-        PairKey pair = new PairKey(workspace, body.observer(), body.observed());
+            @PathVariable String workspace,
+            DyadPrincipal principal,
+            @Valid @RequestBody Requests.CreateConclusion body) {
+        PairKey pair = pairs.of(principal, workspace, body.observer(), body.observed());
         // Create the peers on demand, exactly as posting a message does. Requiring them to exist
         // first made this endpoint fail with a foreign-key violation for the ordinary case of
         // asserting a fact about someone the system has not been told about yet.
@@ -111,9 +120,9 @@ public class ConclusionController {
 
     /** Soft delete plus entity cleanup. The row stays; the audit log needs a subject to point at. */
     @DeleteMapping("/v1/workspaces/{workspace}/conclusions/{id}")
-    public Dtos.ConclusionResponse delete(@PathVariable String workspace, @PathVariable String id) {
-        var conclusion =
-                conclusions.find(workspace, id).orElseThrow(() -> new NotFoundException("conclusion", id));
+    public Dtos.ConclusionResponse delete(
+            @PathVariable String workspace, DyadPrincipal principal, @PathVariable String id) {
+        var conclusion = ownedConclusion(principal, workspace, id);
         conclusions.softDelete(workspace, id, Actor.API, Map.of("requested", true), EventType.DELETE);
         entities.unlink(workspace, id);
         return Dtos.ConclusionResponse.of(conclusion);
@@ -122,23 +131,61 @@ public class ConclusionController {
     @GetMapping("/v1/workspaces/{workspace}/conclusions/{id}/events")
     public List<Dtos.EventResponse> history(
             @PathVariable String workspace,
+            DyadPrincipal principal,
             @PathVariable String id,
             @RequestParam(defaultValue = "100") int limit) {
+        // Resolved before the log is read, for the ownership check below. It also means an id that
+        // does not exist is a 404 rather than an empty array, which previously read as "this fact has
+        // no history" — the one answer an audit endpoint must never give for something it cannot find.
+        ownedConclusion(principal, workspace, id);
         return events.history(workspace, id, Bounds.history(limit)).stream()
                 .map(Dtos.EventResponse::of)
                 .toList();
+    }
+
+    /**
+     * The conclusion behind an id, if it is in a pair this token owns.
+     *
+     * <p>These two routes name no pair — an id is the whole request — so {@link PairScope} has nothing
+     * to check and the route table stops at "some peer token". That left any peer able to delete, or
+     * read the audit trail of, any conclusion in its workspace by id. The pair comes off the row
+     * instead, and is checked the same way: a pair is the observer's memory, and holding bob's token
+     * is not a claim on alice's.
+     *
+     * <p>Not found rather than forbidden, matching the reasoning chain. Conclusion ids are opaque and
+     * unguessable; an endpoint that distinguished "not yours" from "no such row" would turn that into
+     * an oracle for enumerating another pair's rows without reading any of them.
+     *
+     * <p>Deliberately includes soft-deleted rows — {@code find} does not filter them — because reading
+     * the audit trail of a fact that was just deleted is the main reason to read one at all.
+     */
+    private Conclusion ownedConclusion(DyadPrincipal principal, String workspace, String id) {
+        Conclusion conclusion =
+                conclusions.find(workspace, id).orElseThrow(() -> new NotFoundException("conclusion", id));
+        if (!principal.canReachPeer(conclusion.pair().observer())) {
+            throw new NotFoundException("conclusion", id);
+        }
+        return conclusion;
     }
 
     /** Both directions of the reasoning tree, plus the messages underneath. */
     @GetMapping("/v1/workspaces/{workspace}/conclusions/{id}/chain")
     public Dtos.ProvenanceEntry chain(
             @PathVariable String workspace,
+            DyadPrincipal principal,
             @PathVariable String id,
             @RequestParam String observer,
             @RequestParam String observed) {
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
         var conclusion =
                 conclusions.find(workspace, id).orElseThrow(() -> new NotFoundException("conclusion", id));
-        var trace = provenance.forConclusion(new PairKey(workspace, observer, observed), conclusion);
+        // The id is looked up workspace-wide, so owning the named pair is not enough — the row has to
+        // be in it. Not found rather than forbidden: whether a stranger's conclusion exists is itself
+        // something this caller has no business learning.
+        if (!conclusion.pair().equals(pair)) {
+            throw new NotFoundException("conclusion", id);
+        }
+        var trace = provenance.forConclusion(pair, conclusion);
         return new Dtos.ProvenanceEntry(
                 Dtos.ConclusionResponse.of(trace.conclusion()),
                 trace.premises().stream().map(Dtos.ConclusionResponse::of).toList(),

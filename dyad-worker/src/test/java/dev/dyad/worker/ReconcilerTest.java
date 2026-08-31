@@ -14,6 +14,7 @@ import dev.dyad.core.spi.Embedder;
 import dev.dyad.store.repo.CollectionRepository;
 import dev.dyad.store.repo.ConclusionRepository;
 import dev.dyad.memory.entity.EntityPipeline;
+import dev.dyad.store.repo.DreamRepository;
 import dev.dyad.store.repo.EntityRepository;
 import dev.dyad.store.repo.EventLogRepository;
 import dev.dyad.store.repo.PeerRepository;
@@ -47,6 +48,7 @@ class ReconcilerTest {
     private ReconcilerService reconciler;
     private WorkspaceRepository workspaces;
     private EntityRepository entities;
+    private DreamRepository dreams;
     private PairKey pair;
     private final StubEmbedder embedder = new StubEmbedder();
     private final StubAnalyzer analyzer = new StubAnalyzer();
@@ -68,10 +70,11 @@ class ReconcilerTest {
                                 workspaces, new dev.dyad.text.AnalyzerRegistry()));
         queue = new QueueRepository(jdbc);
         entities = new EntityRepository(jdbc);
+        dreams = new DreamRepository(jdbc);
         reconciler =
                 new ReconcilerService(
-                        conclusions, queue, workspaces, new EntityPipeline(entities, embedder), embedder,
-                        Clock.fixed(NOW, ZoneOffset.UTC));
+                        conclusions, queue, workspaces, new EntityPipeline(entities, embedder), dreams,
+                        embedder, Clock.fixed(NOW, ZoneOffset.UTC));
 
         workspaces.getOrCreate(WORKSPACE, Map.of(), Map.of());
         peers.getOrCreate(WORKSPACE, "alice", Map.of(), Map.of());
@@ -182,10 +185,10 @@ class ReconcilerTest {
     @Test
     void backfillsMissingEntityVectors() {
         entities.upsert(WORKSPACE, "부산", null, null);
-        assertThat(entities.match(WORKSPACE, embedder.embed("부산", EmbedPurpose.QUERY), 5)).isEmpty();
+        assertThat(entities.match(pair, embedder.embed("부산", EmbedPurpose.QUERY), 5)).isEmpty();
 
         assertThat(reconciler.syncEntityEmbeddings()).isEqualTo(1);
-        assertThat(entities.match(WORKSPACE, embedder.embed("부산", EmbedPurpose.QUERY), 5)).hasSize(1);
+        assertThat(entities.match(pair, embedder.embed("부산", EmbedPurpose.QUERY), 5)).hasSize(1);
     }
 
     @Test
@@ -230,11 +233,46 @@ class ReconcilerTest {
 
         var failing =
                 new ReconcilerService(
-                        conclusions, queue, workspaces, new EntityPipeline(entities, broken), broken,
-                        Clock.fixed(NOW, ZoneOffset.UTC));
+                        conclusions, queue, workspaces, new EntityPipeline(entities, broken), dreams,
+                        broken, Clock.fixed(NOW, ZoneOffset.UTC));
         assertThat(failing.syncEmbeddings()).isZero();
 
         assertThat(events.history(WORKSPACE, id, 10))
                 .anySatisfy(e -> assertThat(e.detail()).containsKey("sync_error"));
     }
+
+    /**
+     * Regression: {@code scheduleIfDue} wrote a pending dream and enqueued nothing, so the row sat
+     * forever — and because the partial unique index counts a pending dream as in flight, the pair
+     * could never dream again and the manual endpoint answered 409 indefinitely. The sweep is what
+     * clears rows already in that state, and what covers a process dying between the two statements.
+     */
+    @Test
+    void reQueuesADreamThatWasScheduledButNeverEnqueued() {
+        var dream = dreams.schedule(pair, DreamRepository.DreamType.CONSOLIDATE, 50).orElseThrow();
+        WorkUnitKey key = WorkUnitKey.dream(pair);
+
+        var live =
+                new ReconcilerService(
+                        conclusions, queue, workspaces, new EntityPipeline(entities, embedder), dreams,
+                        embedder, Clock.systemUTC());
+
+        // Inside the grace period nothing happens: a dream queued normally is already being worked on.
+        assertThat(live.requeueOrphanedDreams()).isZero();
+        assertThat(queue.pending(key.encode(), 10)).isEmpty();
+
+        jdbc.sql("UPDATE dreams SET created_at = now() - interval '1 hour' WHERE id = ?")
+                .param(dream.id())
+                .update();
+
+        assertThat(live.requeueOrphanedDreams()).isEqualTo(1);
+        assertThat(queue.pending(key.encode(), 10))
+                .singleElement()
+                .satisfies(item -> assertThat(item.payload()).containsEntry("dream_id", dream.id()));
+
+        // And it does not queue the same dream twice on the next pass.
+        assertThat(live.requeueOrphanedDreams()).isZero();
+        assertThat(queue.pending(key.encode(), 10)).hasSize(1);
+    }
+
 }

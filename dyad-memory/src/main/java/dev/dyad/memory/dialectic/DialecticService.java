@@ -5,6 +5,7 @@ import dev.dyad.core.spi.LlmClient;
 import dev.dyad.core.spi.llm.LlmMessage;
 import dev.dyad.core.spi.llm.LlmRequest;
 import dev.dyad.core.spi.llm.ResponseFormat;
+import dev.dyad.core.spi.llm.ToolCall;
 import dev.dyad.core.spi.llm.ToolDef;
 import dev.dyad.core.spi.llm.ToolLoopResult;
 import dev.dyad.memory.prompt.Prompts;
@@ -30,6 +31,9 @@ public class DialecticService {
 
     /** A single question is capped separately; the limit protects the tool loop, not the model. */
     public static final int MAX_QUESTION_TOKENS = 4_000;
+
+    /** Budget for the tool output replayed into the streaming fallback. */
+    public static final int MAX_FINDINGS_TOKENS = 6_000;
 
     private final LlmClient llm;
     private final ToolRegistry tools;
@@ -76,13 +80,25 @@ public class DialecticService {
         if (resolved.text() != null && !resolved.text().isBlank()) {
             return Stream.of(resolved.text());
         }
-        return llm.stream(requestFor(question));
+        // The loop ran out of iterations with the model still calling tools. Streaming the original
+        // request here asked again with no tools and none of what the tools returned — against a
+        // system prompt that says "you know nothing except what the tools return", which is a
+        // refusal or an invention, produced after paying for every iteration. Hand back what was
+        // actually retrieved instead.
+        return llm.stream(requestFor(question, resolved.calls()));
     }
 
     private LlmRequest requestFor(Question question) {
+        return requestFor(question, List.of());
+    }
+
+    private LlmRequest requestFor(Question question, List<ToolCall> findings) {
         String text = TokenCounter.truncate(question.text(), MAX_QUESTION_TOKENS);
         List<LlmMessage> messages = new ArrayList<>(trimHistory(question.history()));
         messages.add(LlmMessage.user(text));
+        if (!findings.isEmpty()) {
+            messages.add(LlmMessage.user(renderFindings(findings)));
+        }
 
         ResponseFormat format =
                 question.responseFormatSchema() == null
@@ -97,6 +113,24 @@ public class DialecticService {
                 0.0,
                 null,
                 format);
+    }
+
+    /**
+     * What the tools returned, as one message the streaming call can answer from.
+     *
+     * <p>Failed calls are included and labelled. "That search errored" is information the model needs
+     * to say the answer could not be established; silently dropping it looks like an empty result.
+     */
+    private static String renderFindings(List<ToolCall> findings) {
+        StringBuilder sb = new StringBuilder("What the tools returned so far:\n\n");
+        for (ToolCall call : findings) {
+            sb.append(call.name()).append(' ').append(call.argumentsJson()).append('\n');
+            sb.append(call.failed() ? "  failed: " : "  ").append(call.output()).append("\n\n");
+        }
+        sb.append(
+                "Answer from these results alone. The search was cut short at its iteration limit, so"
+                        + " say so if what is here does not settle the question.");
+        return TokenCounter.truncate(sb.toString(), MAX_FINDINGS_TOKENS);
     }
 
     /**

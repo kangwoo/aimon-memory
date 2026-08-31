@@ -82,7 +82,10 @@ public class MessageIngestionService {
         sessions.getOrCreate(workspace, sessionName, Map.of(), Map.of());
         for (IncomingMessage message : incoming) {
             peers.getOrCreate(workspace, message.peerName(), Map.of(), Map.of());
-            sessionPeers.join(workspace, sessionName, message.peerName(), null, null);
+            // Attendance only. Passing nulls for the observe flags here overwrote whatever the session
+            // was configured with, so an explicit observe_others: false lasted until the peer's next
+            // message and then quietly reverted to the workspace default.
+            sessionPeers.join(workspace, sessionName, message.peerName());
         }
 
         List<MessageRepository.NewMessage> rows = new ArrayList<>(incoming.size());
@@ -101,7 +104,9 @@ public class MessageIngestionService {
         var workspaceSettings = settings.forWorkspace(workspace);
 
         Set<WorkUnitKey> queued = new LinkedHashSet<>();
+        int batchTokens = 0;
         for (Message message : saved) {
+            batchTokens += message.tokenCount();
             for (PairKey pair : ObserverResolver.observersOf(message, members, workspaceSettings)) {
                 collections.getOrCreate(pair);
                 WorkUnitKey key = WorkUnitKey.representation(workspace, sessionName, pair);
@@ -109,6 +114,16 @@ public class MessageIngestionService {
                 queued.add(key);
             }
         }
+
+        // Nothing used to enqueue this, so SummaryConsumer never received work: no session ever got a
+        // rolling summary, context() always returned an empty one, and the 40/60 budget split it
+        // documents never engaged. One trigger per request rather than per message — the summariser
+        // decides from the message count whether a threshold was actually crossed, so a burst of
+        // triggers still produces one regeneration.
+        queue.enqueue(WorkUnitKey.summary(workspace, sessionName), Map.of(), batchTokens);
+
+        // Deliberately not in `queued`: that list is what ?wait=derive blocks on, and a caller asking
+        // to see its own conclusions should not also wait on a summary regeneration it did not ask for.
         return new IngestResult(saved, List.copyOf(queued));
     }
 

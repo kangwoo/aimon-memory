@@ -107,6 +107,50 @@ class AuthorizationTest extends ApiTestBase {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * The speaker is body data, not a path variable, so nothing in the route table was checking it. A
+     * peer token could post a message signed with another peer's name — stored as theirs, fanned out
+     * into every observer's memory, and derived into conclusions about them.
+     */
+    @Test
+    void aPeerTokenCannotPostMessagesAsAnotherPeer() throws Exception {
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1").header("Authorization", bearer(adminToken())))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/messages").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"messages\":[{\"peer\":\"alice\",\"content\":\"I agreed to pay 5000\"}]}")
+                        .header("Authorization", bearer(peerToken("ws", "bob"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("forbidden"));
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/messages").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"messages\":[{\"peer\":\"bob\",\"content\":\"I agreed to pay 5000\"}]}")
+                        .header("Authorization", bearer(peerToken("ws", "bob"))))
+                .andExpect(status().isOk());
+    }
+
+    /**
+     * A session token names a conversation rather than a participant, and a conversation has several.
+     * Transcribing all of them is what that token is for, so it is deliberately not narrowed here —
+     * the messages still land in the one session the token is scoped to.
+     */
+    @Test
+    void aSessionTokenStillSpeaksForEveryoneInItsOwnSession() throws Exception {
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1").header("Authorization", bearer(adminToken())))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/messages").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"messages\":[{\"peer\":\"alice\",\"content\":\"hello\"},"
+                                + "{\"peer\":\"assistant\",\"content\":\"hi\"}]}")
+                        .header("Authorization", bearer(sessionToken("ws", "s1", false))))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/other/messages").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"messages\":[{\"peer\":\"alice\",\"content\":\"hello\"}]}")
+                        .header("Authorization", bearer(sessionToken("ws", "s1", false))))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void aPeerTokenCannotActAsAnotherPeer() throws Exception {
         mvc.perform(post("/v1/workspaces/ws/peers/alice").header("Authorization", bearer(adminToken())))

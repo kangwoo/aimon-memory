@@ -15,7 +15,7 @@ package dev.dyad.memory.prompt;
  */
 public final class Prompts {
 
-    public static final String VERSION = "2026-08-31.1";
+    public static final String VERSION = "2026-08-31.2";
 
     private Prompts() {}
 
@@ -24,11 +24,15 @@ public final class Prompts {
      * conversation produces different memories depending on who is doing the remembering.
      */
     public static String deriver(String observer, String observed) {
+        // The parentheses are load-bearing: `.formatted` binds tighter than `+`, so without them it
+        // applied to the second literal alone. Three %s went out unsubstituted and the fourth got the
+        // observer's name, which made every cross-peer extraction run on an instruction that
+        // contradicted itself. The self branch was correct, so single-peer tests never saw it.
         String perspective =
                 observer.equals(observed)
                         ? "You are building %s's own memory of themselves.".formatted(observer)
-                        : "You are building %s's memory of %s. Record only what %s could reasonably"
-                                        + " conclude about %s from this conversation."
+                        : ("You are building %s's memory of %s. Record only what %s could reasonably"
+                                        + " conclude about %s from this conversation.")
                                 .formatted(observer, observed, observer, observed);
         return """
                You extract durable facts from conversation.

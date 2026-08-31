@@ -107,7 +107,7 @@ class IngestionToConclusionTest {
         ingestion =
                 new MessageIngestionService(
                         workspaces, peers, sessions, sessionPeers, messages, collections, queue, settings);
-        consumer = new RepresentationConsumer(messages, deriver, dreamer);
+        consumer = new RepresentationConsumer(messages, deriver, dreamer, queue);
 
         workspaces.getOrCreate(WORKSPACE, Map.of(), Map.of());
     }
@@ -257,4 +257,19 @@ class IngestionToConclusionTest {
         assertThat(hits.get(0).conclusion().content()).contains("bank");
         assertThat(conclusions.pendingEmbedding(10)).isEmpty();
     }
+
+    /**
+     * Regression: nothing enqueued the summary work unit, so SummaryConsumer never received work — no
+     * session ever got a rolling summary and context() always returned an empty one, silently.
+     */
+    @Test
+    void ingestingAlsoQueuesTheSessionSummary() {
+        ingestion.ingest(
+                WORKSPACE, "s1", List.of(new MessageIngestionService.IncomingMessage("alice", "hello", null)));
+
+        assertThat(queue.pending(WorkUnitKey.summary(WORKSPACE, "s1").encode(), 10))
+                .as("a summary trigger is queued for the session")
+                .isNotEmpty();
+    }
+
 }

@@ -29,7 +29,9 @@ import org.springframework.stereotype.Service;
  *
  * <p>Every tool is pair-scoped by construction. The pair is bound when the toolset is built, and no
  * tool takes an observer or observed argument, so there is no argument the model can produce that
- * reaches another pair's memory.
+ * reaches another pair's memory. The three message tools carry the observer down into the query for
+ * the same reason: a chat request may legitimately omit the session, and the scope that falls back to
+ * has to be "what this observer heard", not "the workspace".
  *
  * <p>Output is compact text rather than JSON. A model reads it either way, and text is roughly half
  * the tokens.
@@ -110,7 +112,11 @@ public class ToolRegistry {
                     JsonNode node = parse(arguments);
                     return renderMessages(
                             messages.searchText(
-                                    pair.workspaceName(), sessionName, node.path("query").asText(""), limit(node)));
+                                    pair.workspaceName(),
+                                    pair.observer(),
+                                    sessionName,
+                                    node.path("query").asText(""),
+                                    limit(node)));
                 });
     }
 
@@ -124,7 +130,11 @@ public class ToolRegistry {
                     JsonNode node = parse(arguments);
                     return renderMessages(
                             messages.grep(
-                                    pair.workspaceName(), sessionName, node.path("text").asText(""), limit(node)));
+                                    pair.workspaceName(),
+                                    pair.observer(),
+                                    sessionName,
+                                    node.path("text").asText(""),
+                                    limit(node)));
                 });
     }
 
@@ -144,6 +154,7 @@ public class ToolRegistry {
                     return renderMessages(
                             messages.byDateRange(
                                     pair.workspaceName(),
+                                    pair.observer(),
                                     sessionName,
                                     instant(node.path("from").asText(), Instant.EPOCH),
                                     instant(node.path("to").asText(), Instant.now()),

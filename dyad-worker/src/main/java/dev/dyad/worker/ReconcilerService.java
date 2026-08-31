@@ -1,5 +1,8 @@
 package dev.dyad.worker;
 
+import dev.dyad.core.key.PairKey;
+import dev.dyad.core.key.TaskType;
+import dev.dyad.core.key.WorkUnitKey;
 import dev.dyad.core.model.Actor;
 import dev.dyad.core.model.Conclusion;
 import dev.dyad.core.model.EventType;
@@ -7,6 +10,7 @@ import dev.dyad.core.spi.EmbedPurpose;
 import dev.dyad.core.spi.Embedder;
 import dev.dyad.store.repo.ConclusionRepository;
 import dev.dyad.memory.entity.EntityPipeline;
+import dev.dyad.store.repo.DreamRepository;
 import dev.dyad.store.repo.QueueRepository;
 import dev.dyad.store.repo.WorkspaceRepository;
 import java.time.Clock;
@@ -34,10 +38,19 @@ public class ReconcilerService {
 
     private static final int WORKSPACES_PER_PASS = 100;
 
+    /**
+     * How long a scheduled dream may sit pending before the sweep assumes its work unit was lost.
+     *
+     * <p>Long enough that a dream queued normally has been claimed and started well before this, so
+     * the sweep never races the worker that is already on it.
+     */
+    private static final Duration DREAM_ORPHAN_GRACE = Duration.ofMinutes(15);
+
     private final ConclusionRepository conclusions;
     private final QueueRepository queue;
     private final WorkspaceRepository workspaces;
     private final EntityPipeline entities;
+    private final DreamRepository dreams;
     private final Embedder embedder;
     private final Clock clock;
 
@@ -46,21 +59,29 @@ public class ReconcilerService {
             QueueRepository queue,
             WorkspaceRepository workspaces,
             EntityPipeline entities,
+            DreamRepository dreams,
             Embedder embedder,
             Clock clock) {
         this.conclusions = conclusions;
         this.queue = queue;
         this.workspaces = workspaces;
         this.entities = entities;
+        this.dreams = dreams;
         this.embedder = embedder;
         this.clock = clock;
     }
 
     public record Report(
-            int embedded, int entitiesEmbedded, int expired, int claimsReleased, int queueRowsDeleted) {
+            int embedded,
+            int entitiesEmbedded,
+            int expired,
+            int claimsReleased,
+            int queueRowsDeleted,
+            int dreamsRequeued) {
 
         int total() {
-            return embedded + entitiesEmbedded + expired + claimsReleased + queueRowsDeleted;
+            return embedded + entitiesEmbedded + expired + claimsReleased + queueRowsDeleted
+                    + dreamsRequeued;
         }
     }
 
@@ -70,11 +91,50 @@ public class ReconcilerService {
         int expired = expire();
         int claims = queue.releaseExpiredClaims();
         int trimmed = queue.deleteProcessedBefore(clock.instant().minus(processedRetention));
-        Report report = new Report(embedded, entityVectors, expired, claims, trimmed);
+        int dreamsRequeued = requeueOrphanedDreams();
+        Report report = new Report(embedded, entityVectors, expired, claims, trimmed, dreamsRequeued);
         if (report.total() > 0) {
             log.info("reconciler: {}", report);
         }
         return report;
+    }
+
+    /**
+     * Re-enqueue dreams that were scheduled but whose work unit never reached the queue.
+     *
+     * <p>Scheduling and enqueueing are two statements, and anything that happens between them — a
+     * process death, or the scheduler that used to write the row and enqueue nothing at all — leaves
+     * a pending dream nothing will ever pick up. That is not merely lost work: the partial unique
+     * index treats a pending row as in flight, so the pair can never dream again and the manual
+     * endpoint answers 409 forever. This is the only thing that clears it.
+     *
+     * <p>The queue is checked before enqueueing so a dream already waiting is not queued twice.
+     */
+    public int requeueOrphanedDreams() {
+        int requeued = 0;
+        for (DreamRepository.Dream dream : dreams.pending(BATCH)) {
+            if (clock.instant().isBefore(dream.createdAt().plus(DREAM_ORPHAN_GRACE))) {
+                continue;
+            }
+            WorkUnitKey key = workUnitFor(dream);
+            if (!queue.pending(key.encode(), 1).isEmpty()) {
+                continue;
+            }
+            queue.enqueue(key, Map.of("dream_id", dream.id()), 0);
+            requeued++;
+        }
+        if (requeued > 0) {
+            log.warn("re-enqueued {} dreams that were scheduled but never queued", requeued);
+        }
+        return requeued;
+    }
+
+    private static WorkUnitKey workUnitFor(DreamRepository.Dream dream) {
+        PairKey pair = new PairKey(dream.workspaceName(), dream.observer(), dream.observed());
+        return DreamRepository.DreamType.CARD_REFRESH.wire().equals(dream.dreamType())
+                ? new WorkUnitKey(
+                        TaskType.CARD_REFRESH, pair.workspaceName(), null, pair.observer(), pair.observed())
+                : WorkUnitKey.dream(pair);
     }
 
     /**

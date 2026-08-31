@@ -1,5 +1,6 @@
 package dev.dyad.memory.summarize;
 
+import dev.dyad.core.NotFoundException;
 import dev.dyad.core.model.Message;
 import dev.dyad.core.model.Session;
 import dev.dyad.core.spi.LlmClient;
@@ -63,16 +64,25 @@ public class SummarizerService {
 
     /** @return the summaries that were regenerated, if any thresholds were crossed */
     public List<Summary> refresh(String workspace, String sessionName) {
-        Session session = sessions.find(workspace, sessionName).orElseThrow();
+        // Named, not bare — the same reason as ContextService, plus one of its own: this runs inside a
+        // work unit, where a NoSuchElementException with no message is a failure the worker retries
+        // five times and then quarantines, having said nothing about what was missing.
+        Session session = requireSession(workspace, sessionName);
         int total = messages.countInSession(workspace, sessionName);
 
         List<Summary> produced = new java.util.ArrayList<>(2);
         summariseIfDue(session, total, Summary.SHORT, SHORT_EVERY, Prompts.SUMMARY_SHORT)
                 .ifPresent(produced::add);
-        Session reloaded = produced.isEmpty() ? session : sessions.find(workspace, sessionName).orElseThrow();
+        Session reloaded = produced.isEmpty() ? session : requireSession(workspace, sessionName);
         summariseIfDue(reloaded, total, Summary.LONG, LONG_EVERY, Prompts.SUMMARY_LONG)
                 .ifPresent(produced::add);
         return List.copyOf(produced);
+    }
+
+    private Session requireSession(String workspace, String sessionName) {
+        return sessions
+                .find(workspace, sessionName)
+                .orElseThrow(() -> new NotFoundException("session", sessionName));
     }
 
     private Optional<Summary> summariseIfDue(

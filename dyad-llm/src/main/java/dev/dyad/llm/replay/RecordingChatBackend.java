@@ -59,22 +59,32 @@ public final class RecordingChatBackend implements ChatBackend {
     @Override
     public Stream<String> stream(ChatCall rawCall) {
         ChatCall call = resolve(rawCall);
-        String key = FixtureKey.of(call);
+        // Keyed as a streaming call, so this can never collide with the blocking recording of the
+        // same request — see FixtureKey for what sharing one key did.
+        String key = FixtureKey.of(call, true);
         if (mode == LlmMode.REPLAY) {
             LlmFixture fixture =
                     fixtures
                             .find(key)
                             .orElseThrow(
-                                    () -> new FixtureMissException(key, FixtureKey.canonical(call), fixtures.directory()));
+                                    () ->
+                                            new FixtureMissException(
+                                                    key, FixtureKey.canonical(call, true), fixtures.directory()));
             List<String> chunks = fixture.streamChunks();
-            return chunks == null ? Stream.of() : chunks.stream();
+            if (chunks == null) {
+                // Belt and braces now that the key separates them: a fixture found under a streaming
+                // key with no chunks in it is a corrupt recording, and an empty stream would hide that
+                // behind a response that completed successfully having said nothing.
+                throw new FixtureMissException(key, FixtureKey.canonical(call, true), fixtures.directory());
+            }
+            return chunks.stream();
         }
         if (mode == LlmMode.LIVE) {
             return delegate.stream(call);
         }
         // Recording a stream means consuming it, so the caller gets a replay of what was captured.
         List<String> chunks = delegate.stream(call).toList();
-        fixtures.write(key, FixtureKey.canonical(call), null, chunks);
+        fixtures.write(key, FixtureKey.canonical(call, true), null, chunks);
         return chunks.stream();
     }
 

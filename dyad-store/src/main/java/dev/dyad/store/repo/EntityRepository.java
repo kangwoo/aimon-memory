@@ -46,14 +46,20 @@ public class EntityRepository implements EntityStore {
     }
 
     /**
-     * Nearest entity nodes, with live link counts.
+     * Nearest entity nodes, with live link counts inside the pair.
      *
-     * <p>The count drives {@code countWeight}, so it has to exclude deleted conclusions. Counting
-     * them would make an entity look overused and permanently deflate its boost after any churn —
-     * silently, and in the direction of returning worse results.
+     * <p>The count drives {@code countWeight}, so it has to exclude deleted conclusions. Counting them
+     * would make an entity look overused and permanently deflate its boost after any churn — silently,
+     * and in the direction of returning worse results.
+     *
+     * <p>And it has to be counted inside the pair, which is what {@code entity_links} carries the
+     * observer and observed for. Counting workspace-wide meant a shared name paid for every other
+     * tenant's links: "Seoul" attached to five conclusions in the querying pair and four hundred across
+     * the workspace scored 0.006 instead of 0.984, so the {@code ent} signal collapsed to nothing for
+     * exactly the entities it exists to reward, and got worse as the deployment grew.
      */
     @Override
-    public List<EntityMatch> match(String workspace, float[] q, int topK) {
+    public List<EntityMatch> match(PairKey pair, float[] q, int topK) {
         if (q == null) {
             return List.of();
         }
@@ -64,13 +70,21 @@ public class EntityRepository implements EntityStore {
                                (e.embedding <=> ?::vector) AS distance,
                                (SELECT count(*) FROM entity_links l
                                   JOIN conclusions c ON c.id = l.conclusion_id AND c.deleted_at IS NULL
-                                WHERE l.entity_id = e.id) AS link_count
+                                WHERE l.entity_id = e.id
+                                  AND l.workspace_name = ? AND l.observer = ? AND l.observed = ?) AS link_count
                         FROM entities e
                         WHERE e.workspace_name = ? AND e.embedding IS NOT NULL
                         ORDER BY e.embedding <=> ?::vector
                         LIMIT ?
                         """)
-                .params(vector, workspace, vector, topK)
+                .params(
+                        vector,
+                        pair.workspaceName(),
+                        pair.observer(),
+                        pair.observed(),
+                        pair.workspaceName(),
+                        vector,
+                        topK)
                 .query(
                         (rs, i) ->
                                 new EntityMatch(
@@ -79,6 +93,38 @@ public class EntityRepository implements EntityStore {
                                         rs.getInt("link_count")))
                 .list();
     }
+
+    /**
+     * Nearest node in the workspace, for deciding whether a name is one we already have.
+     *
+     * <p>Separate from {@link #match} because it asks a genuinely different question: node identity is
+     * workspace-scoped, and merging is a decision about the node, not about any pair's view of it. It
+     * also wants no link count, which is the part {@code match} has to scope.
+     */
+    private Optional<Nearest> nearestInWorkspace(String workspace, float[] q) {
+        if (q == null) {
+            return Optional.empty();
+        }
+        String vector = Vectors.toLiteral(q);
+        return jdbc.sql(
+                        """
+                        SELECT e.id, e.workspace_name, e.name_norm, e.name_display, e.kind,
+                               (e.embedding <=> ?::vector) AS distance
+                        FROM entities e
+                        WHERE e.workspace_name = ? AND e.embedding IS NOT NULL
+                        ORDER BY e.embedding <=> ?::vector
+                        LIMIT 1
+                        """)
+                .params(vector, workspace, vector)
+                .query(
+                        (rs, i) ->
+                                new Nearest(
+                                        ENTITY.mapRow(rs, i),
+                                        Vectors.similarityFromDistance(rs.getDouble("distance"))))
+                .optional();
+    }
+
+    private record Nearest(EntityRef entity, double similarity) {}
 
     /**
      * Find or create the node for a name.
@@ -93,9 +139,9 @@ public class EntityRepository implements EntityStore {
             return exact.get();
         }
         if (embedding != null) {
-            List<EntityMatch> nearest = match(workspace, embedding, 1);
-            if (!nearest.isEmpty() && nearest.get(0).similarity() >= MERGE_SIMILARITY) {
-                return nearest.get(0).entity();
+            Optional<Nearest> nearest = nearestInWorkspace(workspace, embedding);
+            if (nearest.isPresent() && nearest.get().similarity() >= MERGE_SIMILARITY) {
+                return nearest.get().entity();
             }
         }
         String id = NanoId.generate();

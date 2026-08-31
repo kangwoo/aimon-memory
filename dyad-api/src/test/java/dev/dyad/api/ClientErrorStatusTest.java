@@ -65,6 +65,18 @@ class ClientErrorStatusTest extends ApiTestBase {
                 .andExpect(status().isBadRequest());
     }
 
+    /**
+     * Regression: an unknown session reached a bare {@code orElseThrow}, whose NoSuchElementException
+     * the catch-all reported as a 500 — a caller's typo logged at ERROR and counted as a server fault.
+     */
+    @Test
+    void contextForAnUnknownSessionIsNotFound() throws Exception {
+        mvc.perform(get("/v1/workspaces/ws/sessions/does-not-exist/context")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("not_found"));
+    }
+
     /** An authenticated caller asking for a path that does not exist gets told so. */
     @Test
     void anUnknownVersionedPathIsNotFound() throws Exception {

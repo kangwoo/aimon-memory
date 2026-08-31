@@ -9,6 +9,7 @@ import dev.dyad.store.repo.MessageRepository;
 import dev.dyad.store.repo.QueueRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -28,12 +29,17 @@ public class RepresentationConsumer implements WorkUnitConsumer {
     private final MessageRepository messages;
     private final DeriverService deriver;
     private final DreamerService dreamer;
+    private final QueueRepository queue;
 
     public RepresentationConsumer(
-            MessageRepository messages, DeriverService deriver, DreamerService dreamer) {
+            MessageRepository messages,
+            DeriverService deriver,
+            DreamerService dreamer,
+            QueueRepository queue) {
         this.messages = messages;
         this.deriver = deriver;
         this.dreamer = dreamer;
+        this.queue = queue;
     }
 
     @Override
@@ -65,6 +71,16 @@ public class RepresentationConsumer implements WorkUnitConsumer {
 
         // Checked after every batch rather than on a timer: the thresholds are about how much new
         // material exists, and this is the only place that number changes.
-        dreamer.scheduleIfDue(key.pair());
+        //
+        // Scheduling writes a pending row and nothing more, so the work unit has to be enqueued here.
+        // Without it the row sat forever, and — because the partial unique index counts a pending
+        // dream as in flight — it also refused every later dream for the pair, including the manual
+        // endpoint, which answered 409 indefinitely for a dream that was never going to start.
+        dreamer
+                .scheduleIfDue(key.pair())
+                .ifPresent(
+                        dream ->
+                                queue.enqueue(
+                                        WorkUnitKey.dream(key.pair()), Map.of("dream_id", dream.id()), 0));
     }
 }

@@ -100,6 +100,44 @@ class ReplayHarnessTest {
     }
 
     /**
+     * Streaming is in the key, because the two recordings have different shapes and nothing else tells
+     * them apart. Sharing a key meant a replayed stream found the chat fixture, read a null chunk list
+     * and returned an empty stream — an SSE response that completed successfully having emitted
+     * nothing, with no miss raised to say the fixture was the wrong kind.
+     */
+    @Test
+    void streamingAndBlockingCallsDoNotShareAKey(@TempDir Path directory) {
+        ChatCall base = call("system", "user");
+        assertThat(FixtureKey.of(base, true)).isNotEqualTo(FixtureKey.of(base, false));
+
+        LlmFixtureStore store = new LlmFixtureStore(directory);
+        new RecordingChatBackend(
+                        new FakeChatBackend("gpt-test").answering("{\"answer\":\"blocking\"}"),
+                        store,
+                        LlmMode.RECORD)
+                .chat(base);
+
+        // The chat recording must not answer a stream. Before, this returned an empty stream instead.
+        ChatBackend replaying =
+                new RecordingChatBackend(new FakeChatBackend("gpt-test"), store, LlmMode.REPLAY);
+        assertThatThrownBy(() -> replaying.stream(base).toList())
+                .isInstanceOf(FixtureMissException.class);
+
+        // And recording the stream must not erase the chat response already on disk.
+        new RecordingChatBackend(
+                        new FakeChatBackend("gpt-test").streaming("one", "two"), store, LlmMode.RECORD)
+                .stream(base)
+                .toList();
+
+        assertThat(replaying.chat(base).text()).isEqualTo("{\"answer\":\"blocking\"}");
+        assertThat(
+                        new RecordingChatBackend(new FakeChatBackend("gpt-test"), store, LlmMode.REPLAY)
+                                .stream(base)
+                                .toList())
+                .containsExactly("one", "two");
+    }
+
+    /**
      * Temperature and max tokens are deliberately outside the key: a fixture is a frozen answer, and
      * keying on a budget would invalidate the whole corpus every time one moved.
      */

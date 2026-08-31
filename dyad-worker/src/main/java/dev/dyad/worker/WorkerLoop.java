@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,7 +27,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>Claims are taken by insert, so a claim outlives its transaction and no database session is held
  * open across a model call. It is released in a {@code finally}, and if the process dies before that
- * the TTL releases it instead.
+ * the TTL releases it instead — which is why a unit that is still running has to keep saying so. A
+ * dream over two hundred conclusions makes three sequential model calls and outlives the default
+ * five-minute TTL comfortably; without the heartbeat the reconciler reaped its claim mid-flight and a
+ * second worker picked up the same still-unprocessed items, paying twice and racing in dedup.
  *
  * <p>Work units run on virtual threads. Each one spends most of its life waiting on a provider, which
  * is exactly the workload virtual threads exist for — the concurrency limit here is about how many
@@ -46,6 +51,7 @@ public class WorkerLoop implements AutoCloseable {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Semaphore slots;
     private ExecutorService workers;
+    private ScheduledExecutorService heartbeats;
     private Thread pollThread;
     private Thread reconcilerThread;
 
@@ -71,6 +77,9 @@ public class WorkerLoop implements AutoCloseable {
             return;
         }
         workers = Executors.newVirtualThreadPerTaskExecutor();
+        heartbeats =
+                Executors.newSingleThreadScheduledExecutor(
+                        r -> Thread.ofPlatform().name("dyad-claim-heartbeat").unstarted(r));
         pollThread = Thread.ofPlatform().name("dyad-poll").start(this::pollForever);
         reconcilerThread = Thread.ofPlatform().name("dyad-reconciler").start(this::reconcileForever);
         log.info("worker {} started with concurrency {}", properties.workerId(), properties.concurrency());
@@ -121,6 +130,7 @@ public class WorkerLoop implements AutoCloseable {
     private void runClaimed(String encodedKey) {
         Timer.Sample sample = Timer.start(meters);
         List<QueueRepository.QueueItem> items = List.of();
+        ScheduledFuture<?> heartbeat = startHeartbeat(encodedKey);
         try {
             WorkUnitKey key = WorkUnitKey.parse(encodedKey);
             items = queue.pending(encodedKey, properties.itemsPerUnit());
@@ -141,10 +151,34 @@ public class WorkerLoop implements AutoCloseable {
             queue.recordFailure(ids(items), e.getMessage());
             quarantineIfExhausted(items);
         } finally {
+            heartbeat.cancel(false);
             queue.release(encodedKey, properties.workerId());
             slots.release();
             sample.stop(meters.timer("dyad.worker.unit"));
         }
+    }
+
+    /**
+     * Keep saying "still mine" for as long as the unit runs.
+     *
+     * <p>A third of the TTL, so two consecutive failed extensions still leave time for a third before
+     * the claim lapses. An extension that throws is logged and dropped rather than killing the unit:
+     * losing the claim costs a duplicate run, and aborting work that is mid-way through a model call
+     * costs the same thing plus the call.
+     */
+    private ScheduledFuture<?> startHeartbeat(String encodedKey) {
+        long everyMillis = Math.max(1_000L, properties.claimTtl().toMillis() / 3);
+        return heartbeats.scheduleAtFixedRate(
+                () -> {
+                    try {
+                        queue.extendClaim(encodedKey, properties.workerId(), properties.claimTtl());
+                    } catch (RuntimeException e) {
+                        log.warn("could not extend claim on {}: {}", encodedKey, e.getMessage());
+                    }
+                },
+                everyMillis,
+                everyMillis,
+                TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -209,6 +243,9 @@ public class WorkerLoop implements AutoCloseable {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+        if (heartbeats != null) {
+            heartbeats.shutdownNow();
         }
     }
 }

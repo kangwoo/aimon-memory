@@ -3,6 +3,8 @@ package dev.dyad.api.web;
 import dev.dyad.api.Bounds;
 import dev.dyad.api.dto.Dtos;
 import dev.dyad.api.dto.Requests;
+import dev.dyad.api.security.DyadPrincipal;
+import dev.dyad.api.security.PairScope;
 import dev.dyad.core.NotFoundException;
 import dev.dyad.core.filter.Filter;
 import dev.dyad.core.key.PairKey;
@@ -23,16 +25,20 @@ public class RecallController {
 
     private final RecallService recall;
     private final ProvenanceService provenance;
+    private final PairScope pairs;
 
-    public RecallController(RecallService recall, ProvenanceService provenance) {
+    public RecallController(RecallService recall, ProvenanceService provenance, PairScope pairs) {
         this.recall = recall;
         this.provenance = provenance;
+        this.pairs = pairs;
     }
 
     @PostMapping("/v1/workspaces/{workspace}/recall")
     public Dtos.RecallResponseBody recall(
-            @PathVariable String workspace, @Valid @RequestBody Requests.RecallQuery body) {
-        PairKey pair = new PairKey(workspace, body.observer(), body.observed());
+            @PathVariable String workspace,
+            DyadPrincipal principal,
+            @Valid @RequestBody Requests.RecallQuery body) {
+        PairKey pair = pairs.of(principal, workspace, body.observer(), body.observed());
         var response =
                 recall.recall(
                         new RecallRequest(
@@ -57,12 +63,13 @@ public class RecallController {
     @GetMapping("/v1/workspaces/{workspace}/recall/provenance")
     public Dtos.ProvenanceResponse provenance(
             @PathVariable String workspace,
+            DyadPrincipal principal,
             @RequestParam String entity,
             @RequestParam String observer,
             @RequestParam String observed,
             @RequestParam(defaultValue = "10") int limit) {
 
-        PairKey pair = new PairKey(workspace, observer, observed);
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
         return provenance
                 .forEntity(pair, entity, Bounds.recallLimit(limit))
                 .map(

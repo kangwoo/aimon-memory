@@ -136,8 +136,7 @@ public class RecallService {
     private EntityBoost.Result entityBoosts(
             RecallRequest request, WorkspaceSettings workspaceSettings, float[] queryVector, List<String> ids) {
         List<EntityMatch> matches =
-                entities.match(
-                        request.pair().workspaceName(), queryVector, workspaceSettings.recall().entityTopK());
+                entities.match(request.pair(), queryVector, workspaceSettings.recall().entityTopK());
         if (matches.isEmpty()) {
             return EntityBoost.Result.empty();
         }

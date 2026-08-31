@@ -19,6 +19,7 @@ final class FakeChatBackend implements ChatBackend {
     private final List<ChatCall> calls = new ArrayList<>();
     private RuntimeException failure;
     private int failuresRemaining;
+    private List<String> chunks = List.of("hello", " world");
 
     FakeChatBackend(String model) {
         this.model = model;
@@ -33,6 +34,11 @@ final class FakeChatBackend implements ChatBackend {
         scripted.add(
                 new ChatResponse(
                         null, List.of(new ToolUse(id, name, argumentsJson)), model, new LlmUsage(5, 5), "{}"));
+        return this;
+    }
+
+    FakeChatBackend streaming(String... scriptedChunks) {
+        this.chunks = List.of(scriptedChunks);
         return this;
     }
 
@@ -58,7 +64,7 @@ final class FakeChatBackend implements ChatBackend {
     @Override
     public Stream<String> stream(ChatCall call) {
         calls.add(call);
-        return Stream.of("hello", " world");
+        return chunks.stream();
     }
 
     @Override

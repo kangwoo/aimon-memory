@@ -3,6 +3,8 @@ package dev.dyad.api.web;
 import dev.dyad.api.Bounds;
 import dev.dyad.api.dto.Dtos;
 import dev.dyad.api.dto.Requests;
+import dev.dyad.api.security.DyadPrincipal;
+import dev.dyad.api.security.PairScope;
 import dev.dyad.core.ConflictException;
 import dev.dyad.core.key.PairKey;
 import dev.dyad.core.key.TaskType;
@@ -29,16 +31,19 @@ public class DreamController {
     private final DreamRepository dreams;
     private final PeerCardService cards;
     private final QueueRepository queue;
+    private final PairScope pairs;
 
     public DreamController(
             DreamerService dreamer,
             DreamRepository dreams,
             PeerCardService cards,
-            QueueRepository queue) {
+            QueueRepository queue,
+            PairScope pairs) {
         this.dreamer = dreamer;
         this.dreams = dreams;
         this.cards = cards;
         this.queue = queue;
+        this.pairs = pairs;
     }
 
     /**
@@ -50,8 +55,10 @@ public class DreamController {
      */
     @PostMapping("/v1/workspaces/{workspace}/dreams")
     public Dtos.DreamResponse schedule(
-            @PathVariable String workspace, @Valid @RequestBody Requests.ScheduleDream body) {
-        PairKey pair = new PairKey(workspace, body.observer(), body.observed());
+            @PathVariable String workspace,
+            DyadPrincipal principal,
+            @Valid @RequestBody Requests.ScheduleDream body) {
+        PairKey pair = pairs.of(principal, workspace, body.observer(), body.observed());
         DreamRepository.DreamType type =
                 "card_refresh".equalsIgnoreCase(body.type())
                         ? DreamRepository.DreamType.CARD_REFRESH
@@ -77,18 +84,23 @@ public class DreamController {
     @GetMapping("/v1/workspaces/{workspace}/dreams")
     public List<Dtos.DreamResponse> list(
             @PathVariable String workspace,
+            DyadPrincipal principal,
             @RequestParam String observer,
             @RequestParam String observed,
             @RequestParam(defaultValue = "20") int limit) {
-        return dreams.forPair(new PairKey(workspace, observer, observed), Bounds.history(limit)).stream()
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
+        return dreams.forPair(pair, Bounds.history(limit)).stream()
                 .map(DreamController::toResponse)
                 .toList();
     }
 
     @GetMapping("/v1/workspaces/{workspace}/peer-card")
     public Dtos.PeerCardResponse card(
-            @PathVariable String workspace, @RequestParam String observer, @RequestParam String observed) {
-        PairKey pair = new PairKey(workspace, observer, observed);
+            @PathVariable String workspace,
+            DyadPrincipal principal,
+            @RequestParam String observer,
+            @RequestParam String observed) {
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
         return cards.find(pair)
                 .map(card -> new Dtos.PeerCardResponse(observer, observed, card.lines(), card.updatedAt()))
                 .orElse(new Dtos.PeerCardResponse(observer, observed, List.of(), null));
@@ -102,8 +114,11 @@ public class DreamController {
      */
     @PostMapping("/v1/workspaces/{workspace}/peer-card/refresh")
     public Dtos.PeerCardResponse refresh(
-            @PathVariable String workspace, @RequestParam String observer, @RequestParam String observed) {
-        PairKey pair = new PairKey(workspace, observer, observed);
+            @PathVariable String workspace,
+            DyadPrincipal principal,
+            @RequestParam String observer,
+            @RequestParam String observed) {
+        PairKey pair = pairs.of(principal, workspace, observer, observed);
         List<String> lines = cards.refresh(pair);
         return new Dtos.PeerCardResponse(observer, observed, lines, java.time.Instant.now());
     }

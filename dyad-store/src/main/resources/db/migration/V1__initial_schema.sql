@@ -115,7 +115,11 @@ CREATE TABLE conclusions (
     times_derived      INTEGER     NOT NULL DEFAULT 1,
     last_reinforced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    embedding          vector(1536),
+    -- Width comes from dyad.embed.dimensions via a Flyway placeholder rather than a literal.
+    -- Hard-coded, the setting was a lie: a 3072-dimension model produced vectors happily and then
+    -- failed every insert against the column, as a 409 on each write and a permanently failing work
+    -- unit. EmbeddingDimensionCheck compares the two at startup for databases created before this.
+    embedding          vector(${embedding_dimensions}),
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at         TIMESTAMPTZ,
@@ -151,7 +155,7 @@ CREATE TABLE entities (
     name_norm      TEXT        NOT NULL,
     name_display   TEXT        NOT NULL,
     kind           TEXT,
-    embedding      vector(1536),
+    embedding      vector(${embedding_dimensions}),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (workspace_name, name_norm)
 );

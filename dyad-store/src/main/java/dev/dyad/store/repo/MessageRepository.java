@@ -164,23 +164,54 @@ public class MessageRepository {
     }
 
     /**
+     * The messages one observer may read: the ones spoken while they were in the room.
+     *
+     * <p>The three searches below are the dialectic's message tools, and they used to take an
+     * optional session and drop the predicate entirely when it was null — so a chat request that
+     * omitted {@code session} handed the model every message in the workspace, which is exactly what
+     * {@code ToolRegistry} promises cannot happen. Scoping by membership instead is both tighter and
+     * closer to what the tools mean: the session narrows the result further when one is named, but
+     * never widens it past what this observer heard.
+     *
+     * <p>The window bounds match {@code ObserverResolver}'s. Someone who joined an hour later did not
+     * hear it, and it is not theirs to search.
+     */
+    private static final String AUDIBLE_TO_OBSERVER =
+            "EXISTS (SELECT 1 FROM session_peers sp"
+                    + " WHERE sp.workspace_name = m.workspace_name AND sp.session_name = m.session_name"
+                    + " AND sp.peer_name = ? AND sp.joined_at <= m.created_at"
+                    + " AND (sp.left_at IS NULL OR sp.left_at > m.created_at))";
+
+    private record Scope(String sql, List<Object> params) {}
+
+    private static Scope audibleTo(String workspace, String observer, String session) {
+        StringBuilder sql = new StringBuilder("m.workspace_name = ?");
+        List<Object> params = new ArrayList<>();
+        params.add(workspace);
+        if (session != null) {
+            sql.append(" AND m.session_name = ?");
+            params.add(session);
+        }
+        sql.append(" AND ").append(AUDIBLE_TO_OBSERVER);
+        params.add(observer);
+        return new Scope(sql.toString(), params);
+    }
+
+    /**
      * Keyword search over raw message text.
      *
      * <p>{@code websearch_to_tsquery} rather than {@code plainto_tsquery}: it understands quoted
      * phrases and {@code -exclusion}, which is what a model reaches for when its first search returned
      * too much, and it never raises a syntax error on odd input the way {@code to_tsquery} does.
      */
-    public List<Message> searchText(String workspace, String session, String query, int limit) {
-        String scope = "m.workspace_name = ?" + (session == null ? "" : " AND m.session_name = ?");
-        List<Object> params = new ArrayList<>();
-        params.add(workspace);
-        if (session != null) {
-            params.add(session);
-        }
+    public List<Message> searchText(
+            String workspace, String observer, String session, String query, int limit) {
+        Scope scope = audibleTo(workspace, observer, session);
+        List<Object> params = new ArrayList<>(scope.params());
         params.add(query);
         params.add(limit);
         return jdbc.sql(
-                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope
+                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope.sql()
                                 + " AND to_tsvector('simple', m.content) @@ websearch_to_tsquery('simple', ?)"
                                 + " ORDER BY m.created_at DESC LIMIT ?")
                 .params(params)
@@ -196,20 +227,17 @@ public class MessageRepository {
      * nested quantifiers cost. Substring covers what the tool is actually for, which is locating an
      * exact phrase someone used.
      */
-    public List<Message> grep(String workspace, String session, String needle, int limit) {
-        String scope = "m.workspace_name = ?" + (session == null ? "" : " AND m.session_name = ?");
-        List<Object> params = new ArrayList<>();
-        params.add(workspace);
-        if (session != null) {
-            params.add(session);
-        }
+    public List<Message> grep(
+            String workspace, String observer, String session, String needle, int limit) {
+        Scope scope = audibleTo(workspace, observer, session);
+        List<Object> params = new ArrayList<>(scope.params());
         params.add(escapeForLike(needle));
         params.add(limit);
         // ILIKE, not position(). pg_trgm only offers index support for the pattern-matching operators,
         // so position() meant a sequential scan over the whole message table on every call — and the
         // dialectic makes several per question. The trigram index was being maintained and never read.
         return jdbc.sql(
-                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope
+                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope.sql()
                                 + " AND m.content ILIKE '%' || ? || '%' ESCAPE '\\'"
                                 + " ORDER BY m.created_at DESC LIMIT ?")
                 .params(params)
@@ -232,18 +260,19 @@ public class MessageRepository {
     }
 
     public List<Message> byDateRange(
-            String workspace, String session, java.time.Instant from, java.time.Instant to, int limit) {
-        String scope = "m.workspace_name = ?" + (session == null ? "" : " AND m.session_name = ?");
-        List<Object> params = new ArrayList<>();
-        params.add(workspace);
-        if (session != null) {
-            params.add(session);
-        }
+            String workspace,
+            String observer,
+            String session,
+            java.time.Instant from,
+            java.time.Instant to,
+            int limit) {
+        Scope scope = audibleTo(workspace, observer, session);
+        List<Object> params = new ArrayList<>(scope.params());
         params.add(java.sql.Timestamp.from(from));
         params.add(java.sql.Timestamp.from(to));
         params.add(limit);
         return jdbc.sql(
-                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope
+                        "SELECT " + Sql.MESSAGE_COLUMNS + " FROM messages m WHERE " + scope.sql()
                                 + " AND m.created_at >= ? AND m.created_at < ?"
                                 + " ORDER BY m.created_at LIMIT ?")
                 .params(params)

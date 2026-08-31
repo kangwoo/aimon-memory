@@ -57,7 +57,7 @@ class EntityTest extends StoreTestBase {
         var seoul = entities.upsert(WORKSPACE, "seoul", "PLACE", Drafts.embed("seoul"));
         entities.link(WORKSPACE, seoul.id(), conclusionId, pair);
 
-        var matches = entities.match(WORKSPACE, Drafts.embed("seoul"), 5);
+        var matches = entities.match(pair, Drafts.embed("seoul"), 5);
         assertThat(matches).isNotEmpty();
         assertThat(matches.get(0).entity().id()).isEqualTo(seoul.id());
         assertThat(matches.get(0).similarity()).isGreaterThan(0.9);
@@ -112,13 +112,13 @@ class EntityTest extends StoreTestBase {
         var seoul = entities.upsert(WORKSPACE, "서울", "PLACE", Drafts.embed("서울"));
         entities.link(WORKSPACE, seoul.id(), live, pair);
         entities.link(WORKSPACE, seoul.id(), doomed, pair);
-        assertThat(entities.match(WORKSPACE, Drafts.embed("서울"), 5).get(0).linkedConclusions()).isEqualTo(2);
+        assertThat(entities.match(pair, Drafts.embed("서울"), 5).get(0).linkedConclusions()).isEqualTo(2);
 
         conclusions.softDelete(
                 WORKSPACE, doomed, dev.dyad.core.model.Actor.API, java.util.Map.of(),
                 dev.dyad.core.model.EventType.DELETE);
 
-        var match = entities.match(WORKSPACE, Drafts.embed("서울"), 5).get(0);
+        var match = entities.match(pair, Drafts.embed("서울"), 5).get(0);
         assertThat(match.linkedConclusions()).isEqualTo(1);
         assertThat(match.countWeight()).isEqualTo(1.0);
     }
@@ -126,16 +126,16 @@ class EntityTest extends StoreTestBase {
     /** Nodes created before an embedder was available are invisible to matching until backfilled. */
     @Test
     void nodesWithoutVectorsCanBeFoundForReindexing() {
-        seedPair("alice", "alice");
+        PairKey pair = seedPair("alice", "alice");
         entities.upsert(WORKSPACE, "부산", null, null);
         var pending = entities.withoutEmbedding(WORKSPACE, 10);
 
         assertThat(pending).extracting(e -> e.nameNorm()).containsExactly("부산");
-        assertThat(entities.match(WORKSPACE, Drafts.embed("부산"), 5)).isEmpty();
+        assertThat(entities.match(pair, Drafts.embed("부산"), 5)).isEmpty();
 
         entities.updateEmbedding(pending.get(0).id(), Drafts.embed("부산"));
         assertThat(entities.withoutEmbedding(WORKSPACE, 10)).isEmpty();
-        assertThat(entities.match(WORKSPACE, Drafts.embed("부산"), 5)).hasSize(1);
+        assertThat(entities.match(pair, Drafts.embed("부산"), 5)).hasSize(1);
     }
 
     /** Deleting the conclusion row must take its edges with it, or the link table leaks. */

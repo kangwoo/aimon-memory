@@ -13,8 +13,16 @@ import java.util.List;
  */
 public interface EntityStore {
 
-    /** Nearest entity nodes in the workspace, with their link counts already attached. */
-    List<EntityMatch> match(String workspace, float[] q, int topK);
+    /**
+     * Nearest entity nodes in the workspace, with their link counts already attached.
+     *
+     * <p>The node search is workspace-wide — that is the point of workspace-scoped nodes — but the
+     * count that comes back is the count <em>within the pair</em>. It feeds {@code countWeight}, whose
+     * whole claim is that an entity linked to everything in a pair discriminates nothing inside it;
+     * counting workspace-wide instead answered a different question and got quieter as more unrelated
+     * tenants were added.
+     */
+    List<EntityMatch> match(PairKey pair, float[] q, int topK);
 
     void link(String workspace, String entityId, String conclusionId, PairKey pair);
 }

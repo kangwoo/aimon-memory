@@ -17,7 +17,38 @@ public class SessionPeerRepository {
         this.jdbc = jdbc;
     }
 
-    /** Add or re-open a membership. A peer who left and came back gets a fresh window, not a resurrected one. */
+    /**
+     * Add or re-open a membership without touching the observe settings.
+     *
+     * <p>This is the form ingestion uses, and it has to be a separate method rather than {@link
+     * #join(String, String, String, Boolean, Boolean)} with nulls. That one overwrites both flags with
+     * whatever it was handed, so every incoming message was resetting them to null — and null means
+     * "defer to the workspace default". A session configured with {@code observe_others: false} started
+     * observing again on the peer's next message, silently, in the direction of recording more.
+     *
+     * <p>A peer who left and came back gets a fresh window, not a resurrected one.
+     */
+    public void join(String workspace, String session, String peer) {
+        jdbc.sql(
+                        """
+                        INSERT INTO session_peers (workspace_name, session_name, peer_name)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (workspace_name, session_name, peer_name) DO UPDATE
+                        SET joined_at = CASE WHEN session_peers.left_at IS NULL
+                                             THEN session_peers.joined_at ELSE now() END,
+                            left_at = NULL
+                        """)
+                .params(workspace, session, peer)
+                .update();
+    }
+
+    /**
+     * Add or re-open a membership and set its observe settings.
+     *
+     * <p>Both flags are written as given, nulls included — a caller naming them is stating the whole
+     * membership, and "back to the workspace default" has to be expressible. Callers that only mean to
+     * record attendance want {@link #join(String, String, String)}.
+     */
     public void join(String workspace, String session, String peer, Boolean observeMe, Boolean observeOthers) {
         jdbc.sql(
                         """

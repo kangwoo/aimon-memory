@@ -59,7 +59,14 @@ public final class PostgresSupport {
     }
 
     private static void migrate(DataSource source) {
-        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+        Flyway.configure()
+                .dataSource(source)
+                .locations("classpath:db/migration")
+                // The vector columns take their width from this, exactly as the applications do. The
+                // suite runs on the hashing embedder, whose default is the same 1536.
+                .placeholders(java.util.Map.of("embedding_dimensions", "1536"))
+                .load()
+                .migrate();
     }
 
     /**

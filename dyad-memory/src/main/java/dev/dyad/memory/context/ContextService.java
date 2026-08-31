@@ -1,5 +1,6 @@
 package dev.dyad.memory.context;
 
+import dev.dyad.core.NotFoundException;
 import dev.dyad.core.model.Message;
 import dev.dyad.core.model.Session;
 import dev.dyad.memory.summarize.Summary;
@@ -56,7 +57,13 @@ public class ContextService {
     }
 
     public ContextResult context(String workspace, String sessionName, int tokenBudget) {
-        Session session = sessions.find(workspace, sessionName).orElseThrow();
+        // Named, not bare. A bare orElseThrow raises NoSuchElementException, which the API's catch-all
+        // reports as a 500 and logs at ERROR — a caller's typo indistinguishable from a server fault,
+        // in both the response and the error-rate metric.
+        Session session =
+                sessions
+                        .find(workspace, sessionName)
+                        .orElseThrow(() -> new NotFoundException("session", sessionName));
 
         int summaryBudget = (int) Math.floor(tokenBudget * SUMMARY_SHARE);
         Optional<Summary> chosen = chooseSummary(session, summaryBudget);

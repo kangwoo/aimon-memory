@@ -3,6 +3,8 @@ package dev.dyad.api.web;
 import dev.dyad.api.Bounds;
 import dev.dyad.api.dto.Dtos;
 import dev.dyad.api.dto.Requests;
+import dev.dyad.api.security.DyadPrincipal;
+import dev.dyad.api.security.ForbiddenException;
 import dev.dyad.core.filter.Filter;
 import dev.dyad.core.key.WorkUnitKey;
 import dev.dyad.memory.context.ContextService;
@@ -51,8 +53,22 @@ public class MessageController {
     public List<Dtos.MessageResponse> create(
             @PathVariable String workspace,
             @PathVariable String session,
+            DyadPrincipal principal,
             @RequestParam(required = false) String wait,
             @Valid @RequestBody Requests.CreateMessages body) {
+
+        // The speaker arrives in the body and the interceptor only sees path variables, so without
+        // this a peer token could post messages signed with someone else's name — stored as theirs,
+        // fanned out into every observer's memory, and derived into conclusions about them, with
+        // nothing in the audit trail recording who actually made the call. A token that names no peer
+        // (a session token, which is scoped to a conversation rather than a participant) still speaks
+        // for everyone in its session; that is what it is for.
+        for (Requests.NewMessage message : body.messages()) {
+            if (!principal.canSpeakAs(message.peer())) {
+                throw new ForbiddenException(
+                        "token is scoped to a different peer and cannot post messages as " + message.peer());
+            }
+        }
 
         List<MessageIngestionService.IncomingMessage> incoming =
                 body.messages().stream()

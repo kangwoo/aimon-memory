@@ -24,20 +24,37 @@ import java.security.NoSuchAlgorithmException;
  *
  * <p>Temperature and max tokens are excluded: they change what a live provider returns, but a fixture
  * is a frozen answer, and keying on them would invalidate the whole corpus every time a budget moves.
+ *
+ * <p>Whether the call streams <em>is</em> in the key, because the two produce different recordings —
+ * one response object, or a list of chunks — and nothing else distinguishes them: an identical
+ * request through {@code chat} and through {@code stream} hashes the same. Sharing a key meant a
+ * replayed stream found the chat fixture, read a null chunk list and returned an empty stream: an SSE
+ * response that completed normally having emitted nothing, with no fixture miss to say so. Recording
+ * was worse — each write rebuilds the file from scratch, so recording one erased the other.
  */
 public final class FixtureKey {
 
     private FixtureKey() {}
 
+    /** The key for a blocking call. */
     public static String of(ChatCall call) {
-        return sha256(canonical(call));
+        return of(call, false);
+    }
+
+    public static String of(ChatCall call, boolean streaming) {
+        return sha256(canonical(call, streaming));
+    }
+
+    public static String canonical(ChatCall call) {
+        return canonical(call, false);
     }
 
     /** The exact bytes that get hashed. Written into the fixture so a mismatch is diffable. */
-    public static String canonical(ChatCall call) {
+    public static String canonical(ChatCall call, boolean streaming) {
         ObjectNode root = Json.object();
         root.put("model", call.model());
         root.put("system", call.system());
+        root.put("stream", streaming);
 
         ArrayNode turns = root.putArray("turns");
         for (ChatTurn turn : call.turns()) {

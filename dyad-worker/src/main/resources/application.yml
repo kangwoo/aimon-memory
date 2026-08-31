@@ -12,6 +12,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    placeholders:
+      # Must match dyad.embed.dimensions below: it is the width the vector columns are created with.
+      embedding_dimensions: ${DYAD_EMBED_DIMENSIONS:1536}
   threads:
     virtual:
       enabled: true
@@ -43,6 +46,7 @@ dyad:
   embed:
     provider: ${DYAD_EMBED_PROVIDER:hashing}
     api-key: ${OPENAI_API_KEY:}
+    dimensions: ${DYAD_EMBED_DIMENSIONS:1536}
   text:
     korean-user-dictionary: ${DYAD_NORI_USER_DICT:}
   worker:

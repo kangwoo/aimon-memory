@@ -19,6 +19,10 @@ class MessageGrepTest extends StoreTestBase {
     void seedMessages() {
         seedSession("s1");
         peers.getOrCreate(WORKSPACE, "alice", Map.of(), Map.of());
+        peers.getOrCreate(WORKSPACE, "carol", Map.of(), Map.of());
+        // The search is scoped to what the observer was present for, so membership is part of the
+        // fixture now rather than an implementation detail of ingestion.
+        sessionPeers.join(WORKSPACE, "s1", "alice");
         long start = sessions.nextSequence(WORKSPACE, "s1", 5);
         messages.insertBatch(
                 WORKSPACE, "s1", start,
@@ -32,38 +36,48 @@ class MessageGrepTest extends StoreTestBase {
 
     @Test
     void findsAPhraseRegardlessOfCase() {
-        assertThat(messages.grep(WORKSPACE, "s1", "bank in seoul", 10))
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "bank in seoul", 10))
                 .singleElement()
                 .satisfies(m -> assertThat(m.content()).contains("Bank in Seoul"));
     }
 
     @Test
     void findsKoreanSubstrings() {
-        assertThat(messages.grep(WORKSPACE, "s1", "다른 이야기", 10)).hasSize(1);
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "다른 이야기", 10)).hasSize(1);
     }
 
     /** A percent sign in the phrase must match a percent sign, not everything. */
     @Test
     void wildcardsInTheNeedleAreLiteral() {
-        assertThat(messages.grep(WORKSPACE, "s1", "50% off", 10)).hasSize(1);
-        assertThat(messages.grep(WORKSPACE, "s1", "%", 10))
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "50% off", 10)).hasSize(1);
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "%", 10))
                 .as("a bare percent must match only the message containing one")
                 .hasSize(1);
-        assertThat(messages.grep(WORKSPACE, "s1", "report_final", 10)).hasSize(1);
-        assertThat(messages.grep(WORKSPACE, "s1", "report_", 10)).hasSize(1);
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "report_final", 10)).hasSize(1);
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "report_", 10)).hasSize(1);
         // The underscore is literal, so this matches nothing rather than every four-letter run.
-        assertThat(messages.grep(WORKSPACE, "s1", "repo_t", 10)).isEmpty();
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "repo_t", 10)).isEmpty();
     }
 
     @Test
     void backslashesInTheNeedleAreLiteral() {
-        assertThat(messages.grep(WORKSPACE, "s1", "C:\\temp", 10)).hasSize(1);
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "C:\\temp", 10)).hasSize(1);
+    }
+
+    /**
+     * The scope a null session falls back to. It used to be the whole workspace, which handed the
+     * dialectic's message tools every tenant's transcript the moment a chat request omitted a session.
+     */
+    @Test
+    void aNonMemberSeesNothingEvenWithoutASession() {
+        assertThat(messages.grep(WORKSPACE, "carol", null, "bank in seoul", 10)).isEmpty();
+        assertThat(messages.grep(WORKSPACE, "alice", null, "bank in seoul", 10)).hasSize(1);
     }
 
     @Test
     void anAbsentPhraseFindsNothing() {
-        assertThat(messages.grep(WORKSPACE, "s1", "zeppelin", 10)).isEmpty();
-        assertThat(messages.grep(WORKSPACE, null, "zeppelin", 10)).isEmpty();
+        assertThat(messages.grep(WORKSPACE, "alice", "s1", "zeppelin", 10)).isEmpty();
+        assertThat(messages.grep(WORKSPACE, "alice", null, "zeppelin", 10)).isEmpty();
     }
 
     @Test
