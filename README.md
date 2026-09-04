@@ -4,6 +4,11 @@ A memory system for conversational agents. Every fact it stores belongs to a dir
 **(observer, observed) pair** — `alice`'s memory of herself and `bot`'s memory of `alice` are
 separate stores that never leak into one another.
 
+It runs as two processes behind an HTTP API, and
+[`aimon-memory-client`](modules/aimon-memory-client) implements
+[aimon-core](https://github.com/kangwoo/aimon-core)'s `PeerMemory` against it — so an aimon-core
+application swaps its memory backend for this one by changing which `PeerMemory` it assembles.
+
 Built from `aimon-memory-design.md` and `aimon-memory-build-plan.md`.
 
 ---
@@ -45,13 +50,19 @@ narrative — and it has Tier 1 as one of its tools, which is what keeps its ite
 ## Running it
 
 ```sh
-docker compose up -d               # postgres 16 + pgvector
-./gradlew check                    # 360 tests, Testcontainers starts its own database
+docker compose up -d                 # postgres 16 + pgvector
+./gradlew checkAll                   # format, style, BOM, and the tests that need no daemon
+./gradlew integrationTest            # the Testcontainers tier, which starts its own database
 
 export AIMON_MEMORY_JWT_SECRET=$(openssl rand -base64 48)
-./gradlew :aimon-memory-api:bootRun        # HTTP, port 8080
+./gradlew :aimon-memory-api:bootRun          # HTTP, port 8080
 ./gradlew :aimon-memory-worker:bootRun
 ```
+
+`checkAll` is the fast gate and `integrationTest` is where nearly all of this system's behaviour is
+actually proven — a partial unique index, a pgvector distance and a Flyway migration chain are not
+things a mock stands in for. Both are gates in CI; they are separated so a formatting mistake does
+not wait behind a database.
 
 `AIMON_MEMORY_JWT_SECRET` is required and has no default. A development default in `application.yml` is a
 signing key published in the repository: a deployment that forgets the variable would start cleanly,
@@ -121,12 +132,63 @@ aimon-memory-store     core, text. Flyway, repositories, pgvector, the filter co
 aimon-memory-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
 aimon-memory-engine    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
 
-aimon-memory-worker    memory, store.            [runnable]
-aimon-memory-api       recall, memory, store.    [runnable]
+aimon-memory-worker    engine, store.            [runnable]
+aimon-memory-api       recall, engine, store.    [runnable]
+
+aimon-memory-client    aimon-core only.          [the adapter, Java 17]
+aimon-memory-bom       nothing. A java-platform pinning the published modules.
 ```
 
 Two processes, one codebase. They scale differently and fail differently: the API is latency-bound
 and can be restarted freely; the worker holds queue claims that a restart has to release.
+
+`aimon-memory-engine` is the tiers themselves — deriver, dialectic, dreamer, fan-out, ingestion. It
+is named `engine` rather than `memory` so neither the module nor its package repeats the product's
+name.
+
+---
+
+## Using it from aimon-core
+
+`aimon-memory-client` is the seam. aimon-core replaces a memory backend at
+`at.aimon.core.memory.PeerMemory` — five tiers, at service altitude, with a comment that anticipates
+exactly this case: "the store-backed default and a remote memory service both have a name for" them.
+
+```java
+PeerMemory memory = new RemotePeerMemory(RemoteMemoryOptions.builder()
+        .baseUri("https://memory.internal:8080")
+        .token(tokens::current)          // called per request; tokens expire
+        .agentPeer("assistant")          // who ASSISTANT-role messages are stored as
+        .build());
+```
+
+| aimon-core tier | endpoint |
+| --- | --- |
+| `SNAPSHOT` | `GET /v1/workspaces/{ws}/conclusions` |
+| `SEARCH` | `POST /v1/workspaces/{ws}/recall` |
+| `CHAT` | `POST /v1/workspaces/{ws}/chat` |
+| `OBSERVE` | `POST /v1/workspaces/{ws}/conclusions` |
+| `INGEST` | `POST /v1/workspaces/{ws}/sessions/{session}/messages` |
+
+The pair maps across without translation: aimon-core's subject is the observed peer and its observer
+is the observer, which is the same directed pair this system keys every row on. A query with no
+observer names the subject's own self-pair.
+
+Three capability signals are false, and each is a real difference rather than an omission — recall
+is not narrowed by session, because a conclusion outlives the session that produced it; an injected
+observation's confidence is derived from its level and its reinforcement rather than supplied; and
+ingestion queues rather than derives, so a receipt never reports `derived`.
+
+**The module is not published yet, and cannot be.** It implements an API that no released aimon-core
+contains — `at.aimon.core:aimon-core:0.2.3` on Central predates `PeerMemory` — so the build compiles
+it against a sibling checkout of aimon-core and drops the module entirely when there is none:
+
+```sh
+git clone https://github.com/kangwoo/aimon-core ../aimon-core   # or -PaimonCoreDir=/path/to/it
+```
+
+`:aimon-memory-client:verifyCoreIsReleased` refuses a publish while that is true, so the artifact
+cannot reach Central pointing at an aimon-core that could not load it.
 
 ---
 
@@ -164,7 +226,9 @@ belief no human ever stated.
 ## Testing
 
 ```
-360  tests, all green
+401  tests, all green
+165  of them need no database (`checkAll`)
+236  of them do (`integrationTest`)
 ```
 
 | Layer | Method | Gate |
@@ -180,6 +244,7 @@ belief no human ever stated.
 | Load | concurrent readers and writers | no errors, gap-free sequence under contention (CI runs a small profile) |
 | Configuration | validated at the write boundary | an unknown key or an unusable value is a 422, never a silent fallback |
 | Provider wire format | a real server on an ephemeral port | the request body is asserted, not the object that produced it |
+| aimon-core adapter | a real server on an ephemeral port | the pair's direction, the five tiers' bodies, and the three honest capability signals |
 
 Two things worth knowing about the suite.
 

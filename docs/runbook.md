@@ -6,8 +6,8 @@ Two processes from one artifact set:
 
 ```sh
 ./gradlew :aimon-memory-api:bootJar :aimon-memory-worker:bootJar
-java -jar aimon-memory-api/build/libs/aimon-memory-api-*.jar
-java -jar aimon-memory-worker/build/libs/aimon-memory-worker-*.jar
+java -jar modules/aimon-memory-api/build/libs/aimon-memory-api-*.jar
+java -jar modules/aimon-memory-worker/build/libs/aimon-memory-worker-*.jar
 ```
 
 They differ in how they should be treated:

@@ -6,8 +6,8 @@
 # layer rescues a hit the semantic signal misses.
 #
 #   docker compose up -d
-#   AIMON_MEMORY_JWT_SECRET=... java -jar aimon-memory-api/build/libs/aimon-memory-api-*.jar &
-#   AIMON_MEMORY_JWT_SECRET=... java -jar aimon-memory-worker/build/libs/aimon-memory-worker-*.jar &
+#   AIMON_MEMORY_JWT_SECRET=... java -jar modules/aimon-memory-api/build/libs/aimon-memory-api-*.jar &
+#   AIMON_MEMORY_JWT_SECRET=... java -jar modules/aimon-memory-worker/build/libs/aimon-memory-worker-*.jar &
 #   ./scripts/smoke.sh
 set -euo pipefail
 

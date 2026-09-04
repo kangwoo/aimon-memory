@@ -5,11 +5,26 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # CI never talks to a live model. Recording is a deliberate local act.
+  AIMON_MEMORY_LLM_MODE: replay
+
 jobs:
+  # The fast gate: formatting, style, the BOM's claim about itself, and the tests that need no daemon.
+  # Everything here runs in under a minute, so a formatting mistake does not wait behind a database.
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # aimon-memory-client implements at.aimon.core.memory.PeerMemory, which no released aimon-core
+      # contains yet, so it is built against a checkout. Without this step the module drops out of the
+      # build with a message saying so — which is the right behaviour for a contributor and the wrong
+      # one for CI, where "the adapter was not compiled" must not look like a green build.
+      - uses: actions/checkout@v4
+        with:
+          repository: kangwoo/aimon-core
+          path: aimon-core-checkout
 
       - uses: actions/setup-java@v4
         with:
@@ -18,27 +33,55 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Testcontainers starts pgvector itself, so there is no service container here and no
-      # difference between how the suite runs in CI and how it runs on a laptop.
-      - name: check
-        run: ./gradlew check --no-daemon
-        env:
-          # CI never talks to a live model. Recording is a deliberate local act.
-          AIMON_MEMORY_LLM_MODE: replay
-
-      # Not part of `check`: the timings it prints describe the runner, not the system, so they are a
-      # measurement rather than a gate. Its assertions are a gate — concurrent writers to one pair
-      # must produce no errors and a gap-free sequence, and dedup must still converge under
-      # contention — so CI runs it at a small size instead of leaving it to be run by hand and
-      # therefore never.
-      - name: load (small)
-        run: ./gradlew :aimon-memory-worker:loadTest --no-daemon -Daimon.memory.load.pairs=8 -Daimon.memory.load.perPair=20
-        env:
-          AIMON_MEMORY_LLM_MODE: replay
+      - name: checkAll
+        run: ./gradlew checkAll --no-daemon -PaimonCoreDir=${{ github.workspace }}/aimon-core-checkout
 
       - name: publish test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: unit-test-results
           path: "**/build/reports/tests/test"
+
+  # The tier where nearly all of this system's behaviour actually lives. A partial unique index, a
+  # pgvector distance and a Flyway migration chain are not things a mock stands in for, so this is a
+  # gate and not an optional extra — it is simply slower, and separated so the fast one stays fast.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: kangwoo/aimon-core
+          path: aimon-core-checkout
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Testcontainers starts pgvector itself, so there is no service container here and no difference
+      # between how the suite runs in CI and how it runs on a laptop.
+      - name: integrationTest
+        run: ./gradlew integrationTest --no-daemon -PaimonCoreDir=${{ github.workspace }}/aimon-core-checkout
+
+      # Not part of either gate above: the timings it prints describe the runner, not the system, so
+      # they are a measurement rather than a gate. Its assertions are a gate — concurrent writers to
+      # one pair must produce no errors and a gap-free sequence, and dedup must still converge under
+      # contention — so CI runs it at a small size instead of leaving it to be run by hand and
+      # therefore never.
+      - name: load (small)
+        run: >
+          ./gradlew :aimon-memory-worker:loadTest --no-daemon
+          -PaimonCoreDir=${{ github.workspace }}/aimon-core-checkout
+          -Daimon.memory.load.pairs=8 -Daimon.memory.load.perPair=20
+
+      - name: publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: "**/build/reports/tests"
