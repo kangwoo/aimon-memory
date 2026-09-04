@@ -1,0 +1,11 @@
+-- How many times the reconciler has re-enqueued this dream.
+--
+-- The orphan sweep re-enqueues a pending dream whose work unit it cannot find, which is right when
+-- the unit was genuinely lost between the two statements that schedule and queue it. It is a loop
+-- when the work is not runnable at all — a consumer that never closes the row, a batch quarantined
+-- after max-attempts — because there is nothing in a pending row to distinguish "never started"
+-- from "started and will never finish". Each pass then costs another model call, forever.
+--
+-- Counting the retries is what ends it: after a few, the sweep marks the dream failed instead, which
+-- also releases the partial unique index so the pair can dream again.
+ALTER TABLE dreams ADD COLUMN requeue_count INTEGER NOT NULL DEFAULT 0;

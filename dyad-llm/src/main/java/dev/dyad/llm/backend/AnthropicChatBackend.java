@@ -17,17 +17,61 @@ import java.util.stream.Stream;
 /**
  * Anthropic messages.
  *
- * <p>There is no {@code response_format} here, so structured output is coaxed rather than declared:
- * the schema is appended to the system prompt and the assistant turn is prefilled with an opening
- * brace, which leaves the model no grammatical room to start with prose.
+ * <p>Structured output is declared, not coaxed: {@code output_config.format} with a
+ * {@code json_schema} constrains the response the way OpenAI's {@code response_format} does.
  *
- * <p>The prefill is skipped whenever tools are present. A prefilled assistant turn forbids the model
- * from opening with a {@code tool_use} block, so combining the two silently disables tool calling.
+ * <p>This replaced the older trick of appending the schema to the system prompt and prefilling the
+ * assistant turn with an opening brace. That worked when the API had no format parameter, and it has
+ * since become actively harmful: a prefilled final assistant turn is <b>rejected with a 400</b> on
+ * every model from the 4.6 family onward. Pointing {@code DYAD_ANTHROPIC_MODEL} at a current model
+ * would have failed every structured call in the system — the deriver, the summariser and the
+ * dreamer are all structured — and the failure could not be absorbed by the fallback chain either,
+ * since a 400 is {@code llm_rejected} and deliberately aborts the plan rather than retrying it.
  */
 public final class AnthropicChatBackend implements ChatBackend {
 
     private static final String API_VERSION = "2023-06-01";
-    private static final int DEFAULT_MAX_TOKENS = 4096;
+
+    /**
+     * The output ceiling a call gets when it names none.
+     *
+     * <p>Two numbers, because the two paths are bounded by different things. Thinking tokens are
+     * billed against {@code max_tokens} and the current models think adaptively unless told not to,
+     * so a single flat 4096 was a cap a structured call reached <em>mid-object</em>: the response
+     * comes back {@code stop_reason: max_tokens} holding half a JSON document, {@code
+     * output_config.format} guarantees the shape only for a response that finished, and {@code
+     * LlmClient.structured} then fails to parse — a work unit that fails and eventually quarantines,
+     * for no reason a reader of the logs could see. A blocking call still has to land inside the
+     * HTTP timeout, so it gets 16k; a stream has no such deadline and gets room to finish.
+     */
+    private static final int DEFAULT_MAX_TOKENS = 16_000;
+
+    private static final int DEFAULT_MAX_TOKENS_STREAMING = 64_000;
+
+    /**
+     * Model families that still accept {@code temperature}, {@code top_p} and {@code top_k}.
+     *
+     * <p>An allowlist, and deliberately not the other way round. Sampling parameters were
+     * <b>removed</b> from Opus 5, Opus 4.8, Opus 4.7, Sonnet 5 and Fable 5: sending one is a 400,
+     * which this pipeline classifies as {@code llm_rejected} and the fallback chain deliberately
+     * does not retry. Every call in the system asks for {@code temperature 0.0} — the deriver, the
+     * summariser, the dialectic, the dreamer and the peer card all do — so with the default model
+     * now {@code claude-opus-5}, a denylist that had not heard of the next model would take
+     * extraction, summarisation, dreaming and chat down together on the day it shipped.
+     *
+     * <p>Failing the other way costs a model sampling at its own default instead of greedily, which
+     * is a small loss of determinism on one call rather than an outage. On the models that removed
+     * it, {@code output_config.effort} is the lever that replaced it.
+     */
+    private static final List<String> SAMPLING_MODEL_PREFIXES =
+            List.of(
+                    "claude-opus-4-6",
+                    "claude-opus-4-5",
+                    "claude-sonnet-4-6",
+                    "claude-sonnet-4-5",
+                    "claude-haiku-4-5",
+                    "claude-3",
+                    "claude-2");
 
     private final String baseUrl;
     private final String apiKey;
@@ -57,8 +101,7 @@ public final class AnthropicChatBackend implements ChatBackend {
 
     @Override
     public ChatResponse chat(ChatCall call) {
-        boolean prefilled = shouldPrefill(call);
-        ObjectNode body = body(call, prefilled, false);
+        ObjectNode body = body(call, false);
         JsonNode root =
                 HttpSupport.send(
                         http,
@@ -82,9 +125,6 @@ public final class AnthropicChatBackend implements ChatBackend {
             }
         }
         String answer = text.toString();
-        if (prefilled && !answer.isEmpty()) {
-            answer = "{" + answer;
-        }
         return new ChatResponse(
                 answer.isEmpty() ? null : answer,
                 uses,
@@ -97,7 +137,7 @@ public final class AnthropicChatBackend implements ChatBackend {
 
     @Override
     public Stream<String> stream(ChatCall call) {
-        ObjectNode body = body(call, false, true);
+        ObjectNode body = body(call, true);
         return HttpSupport.sendLines(
                         http,
                         HttpSupport.request(baseUrl + "/v1/messages", headers(), timeout, body.toString()).build(),
@@ -109,44 +149,33 @@ public final class AnthropicChatBackend implements ChatBackend {
                 .filter(text -> !text.isEmpty());
     }
 
-    private static boolean shouldPrefill(ChatCall call) {
-        return call.responseFormat() != null && call.tools().isEmpty();
-    }
-
-    private ObjectNode body(ChatCall call, boolean prefill, boolean stream) {
+    private ObjectNode body(ChatCall call, boolean stream) {
         ObjectNode body = Json.object();
-        body.put("model", call.model() == null ? model : call.model());
-        body.put("max_tokens", call.maxTokens() == null ? DEFAULT_MAX_TOKENS : call.maxTokens());
-        if (call.temperature() != null) {
+        String resolvedModel = call.model() == null ? model : call.model();
+        body.put("model", resolvedModel);
+        body.put(
+                "max_tokens",
+                call.maxTokens() == null
+                        ? (stream ? DEFAULT_MAX_TOKENS_STREAMING : DEFAULT_MAX_TOKENS)
+                        : call.maxTokens());
+        if (call.temperature() != null && acceptsSamplingParameters(resolvedModel)) {
             body.put("temperature", call.temperature());
         }
 
-        String system = call.system() == null ? "" : call.system();
+        if (call.system() != null && !call.system().isBlank()) {
+            body.put("system", call.system());
+        }
+
         ResponseFormat format = call.responseFormat();
         if (format != null) {
-            system =
-                    (system.isBlank() ? "" : system + "\n\n")
-                            + "Answer with a single JSON object and nothing else. It must validate against"
-                            + " this schema:\n"
-                            + format.jsonSchema();
-        }
-        if (!system.isBlank()) {
-            body.put("system", system);
+            ObjectNode outputFormat = body.putObject("output_config").putObject("format");
+            outputFormat.put("type", "json_schema");
+            outputFormat.set("schema", Json.read(format.jsonSchema()));
         }
 
         ArrayNode messages = body.putArray("messages");
         for (ChatTurn turn : call.turns()) {
             appendTurn(messages, turn);
-        }
-        if (prefill) {
-            ObjectNode assistant = Json.object();
-            assistant.put("role", "assistant");
-            ArrayNode content = assistant.putArray("content");
-            ObjectNode block = Json.object();
-            block.put("type", "text");
-            block.put("text", "{");
-            content.add(block);
-            messages.add(assistant);
         }
 
         if (!call.tools().isEmpty()) {
@@ -213,6 +242,22 @@ public final class AnthropicChatBackend implements ChatBackend {
         node.put("role", role);
         node.put("content", text);
         return node;
+    }
+
+    /**
+     * Whether this model still takes {@code temperature}.
+     *
+     * <p>Prefix rather than equality: a pinned snapshot such as {@code claude-sonnet-4-5-20250929}
+     * has the same request surface as the family it belongs to, and an unknown name — a gateway's
+     * own alias, a model released after this list was written — falls through to "do not send it",
+     * which is the side that degrades rather than fails.
+     */
+    static boolean acceptsSamplingParameters(String model) {
+        if (model == null) {
+            return false;
+        }
+        String normalised = model.toLowerCase(java.util.Locale.ROOT);
+        return SAMPLING_MODEL_PREFIXES.stream().anyMatch(normalised::startsWith);
     }
 
     @Override

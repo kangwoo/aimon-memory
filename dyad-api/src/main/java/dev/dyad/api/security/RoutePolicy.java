@@ -27,8 +27,13 @@ public class RoutePolicy {
     private final Map<Route, Rule> rules = new LinkedHashMap<>();
 
     public RoutePolicy() {
-        // Administration: minting tokens is the one thing a workspace token must never do.
-        register("POST", "/v1/tokens", TokenScope.ADMIN, false);
+        // Minting is delegation, and delegation is the reason the scopes nest: a service holding a
+        // workspace token mints a session token for one conversation and hands it to a client, which
+        // cannot widen it back. Admin-only minting forced the opposite — an admin key in every service
+        // that needed to hand out a narrow token. TokenController enforces that what comes out is never
+        // wider than the token that asked for it; peer and session tokens cannot reach here at all,
+        // since neither satisfies a workspace-scoped route.
+        register("POST", "/v1/tokens", TokenScope.WORKSPACE, false);
         register("GET", "/v1/workspaces", TokenScope.ADMIN, false);
 
         register("POST", "/v1/workspaces/{workspace}", TokenScope.ADMIN, false);

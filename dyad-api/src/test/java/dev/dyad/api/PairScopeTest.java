@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import dev.dyad.core.key.PairKey;
+import dev.dyad.core.key.TaskType;
+import dev.dyad.core.key.WorkUnitKey;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -176,6 +178,14 @@ class PairScopeTest extends ApiTestBase {
      * The gate that keeps this from regressing. A controller that builds its own {@link PairKey} has
      * skipped the check by construction, and the next route to grow an observer parameter is exactly
      * where that happens.
+     *
+     * <p>All three ways in, not one. Matching only the three-argument constructor was a signature
+     * check dressed up as a reachability rule: {@link PairKey#self} builds one inside {@code
+     * dev.dyad.core.key} where the rule cannot see it, and {@link WorkUnitKey#pair()} hands one back
+     * from a key a controller can assemble out of raw request parameters — {@code DreamController}
+     * was already calling that sibling constructor. Either route reintroduces the unscoped read this
+     * class exists to prevent, with the build staying green. The static factories that take an
+     * already-resolved {@code PairKey} are the supported path and stay allowed.
      */
     @Test
     void noControllerBuildsAPairKeyWithoutGoingThroughPairScope() {
@@ -190,6 +200,11 @@ class PairScopeTest extends ApiTestBase {
                 .resideInAPackage("dev.dyad.api.web..")
                 .should()
                 .callConstructor(PairKey.class, String.class, String.class, String.class)
+                .orShould()
+                .callMethod(PairKey.class, "self", String.class, String.class)
+                .orShould()
+                .callConstructor(
+                        WorkUnitKey.class, TaskType.class, String.class, String.class, String.class, String.class)
                 .as("controllers must obtain a PairKey from PairScope, which checks it against the token")
                 .check(imported);
     }

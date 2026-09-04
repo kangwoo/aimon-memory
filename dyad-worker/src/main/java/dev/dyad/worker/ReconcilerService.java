@@ -1,7 +1,6 @@
 package dev.dyad.worker;
 
 import dev.dyad.core.key.PairKey;
-import dev.dyad.core.key.TaskType;
 import dev.dyad.core.key.WorkUnitKey;
 import dev.dyad.core.model.Actor;
 import dev.dyad.core.model.Conclusion;
@@ -46,6 +45,17 @@ public class ReconcilerService {
      */
     private static final Duration DREAM_ORPHAN_GRACE = Duration.ofMinutes(15);
 
+    /**
+     * How many times the sweep will put one dream back on the queue before giving up on it.
+     *
+     * <p>Re-enqueueing is right for a unit that was genuinely lost between the two statements that
+     * schedule and queue it, and that is a one-off. Nothing in a pending row distinguishes it from a
+     * dream whose work will never close it — a consumer that forgets to, a batch quarantined after
+     * max-attempts — and for that one the sweep is an unbounded loop paying for a model call every
+     * pass. Three attempts is generous for a lost enqueue and cheap for a stuck one.
+     */
+    private static final int MAX_DREAM_REQUEUES = 3;
+
     private final ConclusionRepository conclusions;
     private final QueueRepository queue;
     private final WorkspaceRepository workspaces;
@@ -77,11 +87,12 @@ public class ReconcilerService {
             int expired,
             int claimsReleased,
             int queueRowsDeleted,
-            int dreamsRequeued) {
+            int dreamsRequeued,
+            int dreamsAbandoned) {
 
         int total() {
             return embedded + entitiesEmbedded + expired + claimsReleased + queueRowsDeleted
-                    + dreamsRequeued;
+                    + dreamsRequeued + dreamsAbandoned;
         }
     }
 
@@ -91,8 +102,16 @@ public class ReconcilerService {
         int expired = expire();
         int claims = queue.releaseExpiredClaims();
         int trimmed = queue.deleteProcessedBefore(clock.instant().minus(processedRetention));
-        int dreamsRequeued = requeueOrphanedDreams();
-        Report report = new Report(embedded, entityVectors, expired, claims, trimmed, dreamsRequeued);
+        DreamSweep dreamSweep = sweepOrphanedDreams();
+        Report report =
+                new Report(
+                        embedded,
+                        entityVectors,
+                        expired,
+                        claims,
+                        trimmed,
+                        dreamSweep.requeued(),
+                        dreamSweep.abandoned());
         if (report.total() > 0) {
             log.info("reconciler: {}", report);
         }
@@ -109,9 +128,17 @@ public class ReconcilerService {
      * endpoint answers 409 forever. This is the only thing that clears it.
      *
      * <p>The queue is checked before enqueueing so a dream already waiting is not queued twice.
+     *
+     * <p><b>Bounded.</b> Re-enqueueing assumes the unit was lost on the way to the queue, and for a
+     * dream nothing will ever close — a consumer that leaves the row pending, a batch quarantined
+     * after max-attempts — that assumption never stops being true: the sweep finds no pending item,
+     * concludes the unit is lost again, and pays for another model call, every pass, forever. After
+     * {@link #MAX_DREAM_REQUEUES} the dream is failed instead, which also frees the partial unique
+     * index so the pair is not locked out of dreaming for good.
      */
-    public int requeueOrphanedDreams() {
+    public DreamSweep sweepOrphanedDreams() {
         int requeued = 0;
+        int abandoned = 0;
         for (DreamRepository.Dream dream : dreams.pending(BATCH)) {
             if (clock.instant().isBefore(dream.createdAt().plus(DREAM_ORPHAN_GRACE))) {
                 continue;
@@ -120,20 +147,35 @@ public class ReconcilerService {
             if (!queue.pending(key.encode(), 1).isEmpty()) {
                 continue;
             }
+            if (dream.requeueCount() >= MAX_DREAM_REQUEUES) {
+                dreams.fail(
+                        dream.id(),
+                        "re-enqueued " + dream.requeueCount() + " times without the work unit ever"
+                                + " completing; giving up so the pair can dream again");
+                abandoned++;
+                continue;
+            }
             queue.enqueue(key, Map.of("dream_id", dream.id()), 0);
+            dreams.recordRequeue(dream.id());
             requeued++;
         }
         if (requeued > 0) {
             log.warn("re-enqueued {} dreams that were scheduled but never queued", requeued);
         }
-        return requeued;
+        if (abandoned > 0) {
+            log.error("failed {} dreams that were re-enqueued {} times and never ran",
+                    abandoned, MAX_DREAM_REQUEUES);
+        }
+        return new DreamSweep(requeued, abandoned);
     }
+
+    /** @param abandoned dreams failed because re-enqueueing them was not getting them run */
+    public record DreamSweep(int requeued, int abandoned) {}
 
     private static WorkUnitKey workUnitFor(DreamRepository.Dream dream) {
         PairKey pair = new PairKey(dream.workspaceName(), dream.observer(), dream.observed());
         return DreamRepository.DreamType.CARD_REFRESH.wire().equals(dream.dreamType())
-                ? new WorkUnitKey(
-                        TaskType.CARD_REFRESH, pair.workspaceName(), null, pair.observer(), pair.observed())
+                ? WorkUnitKey.cardRefresh(pair)
                 : WorkUnitKey.dream(pair);
     }
 

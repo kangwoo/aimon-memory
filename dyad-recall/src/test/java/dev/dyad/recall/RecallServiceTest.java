@@ -117,10 +117,17 @@ class RecallServiceTest extends RecallTestBase {
         assertThat(defaultWinner).isNotNull();
     }
 
-    /** A malformed weight override must not take the workspace's recall down. */
+    /**
+     * A malformed weight override must not take the workspace's recall down.
+     *
+     * <p>Written straight into the table, because the repository refuses it now — which is the state
+     * this fallback is for: a row that predates a validation rule, or one an operator wrote by hand.
+     */
     @Test
     void invalidWeightsFallBackToTheDefaults() {
-        workspaces.updateConfiguration(WORKSPACE, Map.of("recall.weights", List.of(9.0, 9.0, 9.0, 9.0, 9.0, 9.0)));
+        jdbc.sql("UPDATE workspaces SET configuration = ?::jsonb WHERE name = ?")
+                .params("{\"recall.weights\": [9.0, 9.0, 9.0, 9.0, 9.0, 9.0]}", WORKSPACE)
+                .update();
         settings.invalidate(WORKSPACE);
 
         var response = recall.recall(RecallRequest.of(pair, "seoul"));

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end smoke test against running processes.
 #
-# Proves the parts nobody can prove from unit tests: that both jars boot, that Flyway applies all
-# five migrations to an empty database, that Nori analysis reaches the query path, and that the
-# entity layer rescues a hit the semantic signal misses.
+# Proves the parts nobody can prove from unit tests: that both jars boot, that Flyway applies every
+# migration to an empty database, that Nori analysis reaches the query path, and that the entity
+# layer rescues a hit the semantic signal misses.
 #
 #   docker compose up -d
 #   DYAD_JWT_SECRET=... java -jar dyad-api/build/libs/dyad-api-*.jar &
@@ -19,7 +19,8 @@ WORKER="${DYAD_WORKER_URL:-http://localhost:9091}"
 SECRET="${DYAD_JWT_SECRET:?set DYAD_JWT_SECRET to the same value the API is running with}"
 WS="${DYAD_SMOKE_WORKSPACE:-smoke}"
 
-# An admin token has to be minted out of band: the endpoint that issues tokens requires one.
+# The first token has to be minted out of band: /v1/tokens narrows an existing token and cannot
+# create one from nothing. Everything after this could be delegated from it.
 TOKEN=$(python3 - "$SECRET" <<'PY'
 import base64, hmac, hashlib, json, sys, time
 secret = sys.argv[1].encode()

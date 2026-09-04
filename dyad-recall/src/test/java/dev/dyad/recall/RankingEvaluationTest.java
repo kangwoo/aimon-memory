@@ -142,6 +142,7 @@ class RankingEvaluationTest extends RecallTestBase {
 
         int n = set.queries().size();
         ObjectNode report = MAPPER.createObjectNode();
+        report.put("corpus", set.fingerprint());
         ObjectNode mean = report.putObject("mean");
         mean.put("ndcg@5", round(ndcg5 / n));
         mean.put("ndcg@10", round(ndcg10 / n));
@@ -158,6 +159,20 @@ class RankingEvaluationTest extends RecallTestBase {
 
         JsonNode baseline = readBaseline();
         System.out.println(prettyReport(report));
+
+        // The corpus the floor was measured on, before any comparison against it.
+        //
+        // A one-sided gate can only report on a change if everything else held still. Regenerating the
+        // baseline in the same commit that changed the ent signal — while the corpus grew from 26
+        // documents to 40 and the queries from 16 to 50 — made "did this help or hurt" unanswerable and
+        // the gate green regardless. Expanding the corpus is fine; doing it in the same change as the
+        // behaviour under measurement is not, and this is what says so out loud.
+        assertThat(baseline.path("corpus").asText())
+                .as(
+                        "the baseline was measured on a different corpus. Expand the corpus and"
+                                + " regenerate the baseline (-Ddyad.eval.update=true) in a change that"
+                                + " alters nothing else, then make the ranking change on top of it")
+                .isEqualTo(set.fingerprint());
 
         // One-sided: improvements pass and are expected to move the baseline on the next update run.
         for (String metric : List.of("ndcg@5", "ndcg@10", "mrr", "recall@10")) {

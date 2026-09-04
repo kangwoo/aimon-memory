@@ -78,6 +78,7 @@ class IngestionToConclusionTest {
     private RepresentationConsumer consumer;
     private SessionPeerRepository sessionPeers;
     private PeerRepository peers;
+    private StubLlmClient llm;
     private final StubEmbedder embedder = new StubEmbedder();
 
     @BeforeEach
@@ -99,7 +100,7 @@ class IngestionToConclusionTest {
         conclusions = new ConclusionRepository(jdbc, events, collections, settings);
         var entityPipeline = new EntityPipeline(entities, embedder);
         var writer = new ConclusionWriter(conclusions, entityPipeline, embedder, settings);
-        var llm = StubLlmClient.returning(EXTRACTION);
+        llm = StubLlmClient.returning(EXTRACTION);
         var deriver = new DeriverService(llm, writer);
         var dreamer =
                 new DreamerService(llm, conclusions, writer, new DreamRepository(jdbc), collections, CLOCK);
@@ -166,13 +167,24 @@ class IngestionToConclusionTest {
         assertThat(ingestion.isDrained(result.queued())).isTrue();
     }
 
-    /** One extraction, two stores: the speaker's own memory and the listener's memory of them. */
+    /**
+     * Two observing pairs, two stores — and two extractions, which is the part worth pinning.
+     *
+     * <p>The specification called for one call fanned out over storage; the implementation asks the
+     * model once per pair, because the prompt is written from the observer's side and "what bob may
+     * conclude about alice" is not the question alice's own memory answers. ADR 0006 records the
+     * decision. This assertion is here so that the cost cannot quietly change in either direction:
+     * dropping to one call would mean a pair's memory is no longer its own point of view.
+     */
     @Test
-    void fanOutWritesToEveryObservingPair() {
+    void fanOutWritesToEveryObservingPairAndCostsACallPerPair() {
         peers.getOrCreate(WORKSPACE, "bob", Map.of(), Map.of());
         ingestion.ingest(WORKSPACE, "s1", List.of(
                 new MessageIngestionService.IncomingMessage("bob", "hello", Map.of())));
         sessionPeers.join(WORKSPACE, "s1", "bob", true, true);
+        // Bob's own greeting has already queued work of its own; drain it so the count below measures
+        // only what alice's message costs.
+        drain(IDLE_NOW);
 
         var result =
                 ingestion.ingest(
@@ -181,14 +193,27 @@ class IngestionToConclusionTest {
                         List.of(new MessageIngestionService.IncomingMessage("alice", "I work at a bank.", Map.of())));
 
         assertThat(result.queued()).hasSize(2);
+        int before = llm.requests().size();
         drain(IDLE_NOW);
 
         assertThat(conclusions.list(PairKey.self(WORKSPACE, "alice"), Filter.ALL, 0, 10).total()).isEqualTo(2);
         assertThat(conclusions.list(new PairKey(WORKSPACE, "bob", "alice"), Filter.ALL, 0, 10).total())
                 .isEqualTo(2);
+
+        // One per observing pair, each carrying that pair's own framing.
+        assertThat(llm.requests().subList(before, llm.requests().size()))
+                .hasSize(2)
+                .extracting(r -> r.system())
+                .anySatisfy(system -> assertThat(system).contains("alice's own memory of themselves"))
+                .anySatisfy(system -> assertThat(system).contains("bob's memory of alice"));
     }
 
-    /** The batch gate is what keeps one extraction call serving many messages. */
+    /**
+     * The batch gate is what keeps one extraction call serving many messages.
+     *
+     * <p>This is the multiplier that batching does remove. The one it does not is the observer count
+     * — see {@link #fanOutWritesToEveryObservingPairAndCostsACallPerPair}.
+     */
     @Test
     void aBatchOfMessagesCostsOneExtraction() {
         List<MessageIngestionService.IncomingMessage> batch =
@@ -204,7 +229,9 @@ class IngestionToConclusionTest {
         assertThat(queue.pending(result.queued().get(0).encode(), 10)).hasSize(3);
         assertThat(result.messages()).extracting(m -> m.seqInSession()).containsExactly(1L, 2L, 3L);
 
+        int before = llm.requests().size();
         drain(IDLE_NOW);
+        assertThat(llm.requests().size() - before).isEqualTo(1);
         var stored = conclusions.list(PairKey.self(WORKSPACE, "alice"), Filter.ALL, 0, 10).items();
         assertThat(stored).hasSize(2);
         // Every message in the batch is cited as evidence for every conclusion drawn from it.

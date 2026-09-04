@@ -4,6 +4,7 @@ import dev.dyad.core.model.Page;
 import dev.dyad.core.model.Peer;
 import dev.dyad.store.Jsonb;
 import dev.dyad.store.RowMappers;
+import dev.dyad.store.WorkspaceSettingsService;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -19,6 +20,7 @@ public class PeerRepository {
     }
 
     public Peer getOrCreate(String workspace, String name, Map<String, Object> metadata, Map<String, Object> configuration) {
+        WorkspaceSettingsService.rejectTuningKeys("peer", configuration);
         jdbc.sql(
                         """
                         INSERT INTO peers (workspace_name, name, metadata, configuration)
@@ -38,6 +40,7 @@ public class PeerRepository {
     }
 
     public void updateConfiguration(String workspace, String name, Map<String, Object> configuration) {
+        WorkspaceSettingsService.rejectTuningKeys("peer", configuration);
         jdbc.sql("UPDATE peers SET configuration = ? WHERE workspace_name = ? AND name = ?")
                 .params(Jsonb.of(configuration), workspace, name)
                 .update();

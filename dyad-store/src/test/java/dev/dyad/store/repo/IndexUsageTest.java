@@ -30,17 +30,22 @@ class IndexUsageTest extends StoreTestBase {
 
     private PairKey pair;
     private String vector;
+    private final java.util.List<String> conclusionIds = new java.util.ArrayList<>();
 
     @BeforeEach
     void seedAndAnalyse() {
         pair = seedPair("alice", "alice");
         seedSession("s1");
+        conclusionIds.clear();
         // Each row carries a term unique to it. A text index earns its place on selective queries;
         // asking for a word every row contains would make the pair scan genuinely cheaper, and the
         // test would then be measuring the planner's arithmetic rather than the index's reachability.
         for (int i = 0; i < 200; i++) {
-            conclusions.upsert(
-                    Drafts.explicit(pair, "s1", "alice fact number " + i + " about marker" + i + " topic"));
+            conclusionIds.add(
+                    conclusions
+                            .upsert(Drafts.explicit(
+                                    pair, "s1", "alice fact number " + i + " about marker" + i + " topic"))
+                            .conclusionId());
         }
         vector = Vectors.toLiteral(Drafts.embed("alice fact"));
         Explain.analyse("conclusions", "entities", "entity_links", "messages", "queue");
@@ -149,37 +154,114 @@ class IndexUsageTest extends StoreTestBase {
                 .contains("ix_concl_tree");
     }
 
+    /**
+     * The HNSW index on entities serves node resolution, not the boost.
+     *
+     * <p>This is the query {@code upsert} runs to decide whether a name is a node the workspace
+     * already has: a workspace-wide nearest neighbour, which is exactly what the index is shaped for.
+     * The boost path deliberately does not use it — it joins to {@code entity_links} first so that a
+     * pair's top-k is drawn from the pair's own entities, and that ordering cannot come from an index
+     * over the whole workspace.
+     */
     @Test
-    void entityMatchingReachesTheEntityVectorIndex() {
+    void entityResolutionReachesTheEntityVectorIndex() {
         entities.upsert(WORKSPACE, "서울", "PLACE", Drafts.embed("서울"));
         Explain.analyse("entities");
         assertThat(
                         Explain.plan(
                                 "SELECT e.id FROM entities e WHERE e.workspace_name = ?"
-                                        + " AND e.embedding IS NOT NULL ORDER BY e.embedding <=> ?::vector LIMIT 10",
+                                        + " AND e.embedding IS NOT NULL ORDER BY e.embedding <=> ?::vector LIMIT 1",
                                 WORKSPACE, vector))
                 .contains("ix_entity_hnsw");
     }
 
+    /**
+     * The boost path's own index, EXPLAINed through the statement {@code match} actually runs.
+     *
+     * <p>This used to assert against a hand-written single-table lookup on {@code entity_links}. That
+     * stopped describing the boost the moment the candidate set became a join to the pair's own
+     * entities: the assertion went on passing for a query no caller issues, which is the one thing an
+     * index-usage gate must not do.
+     */
+    @Test
+    void entityBoostReachesThePairScopedEdgeIndex() {
+        seedEntityGraph();
+        assertThat(
+                        Explain.plan(
+                                EntityRepository.MATCH_SQL,
+                                vector, WORKSPACE, "alice", "alice", WORKSPACE, vector, 10))
+                .contains("ix_elink_entity");
+    }
+
+    /**
+     * Nodes shared across the workspace, edges split between two pairs.
+     *
+     * <p>Both halves matter. Without edges the planner has nothing to cost and picks whichever index
+     * it reaches first, which is how the previous version of this assertion passed against a query
+     * shape that no longer existed. Without a second pair's edges on the same nodes the pair filter is
+     * not selective, and the plan says nothing about whether it can be answered from the pair-scoped
+     * index.
+     */
+    private void seedEntityGraph() {
+        PairKey other = seedPair("bob", "carol");
+        seedSession("s2");
+        String theirs =
+                conclusions.upsert(Drafts.explicit(other, "s2", "bob fact about seoul")).conclusionId();
+        for (int i = 0; i < 200; i++) {
+            var node = entities.upsert(WORKSPACE, "entity" + i, "THING", Drafts.embed("entity" + i));
+            entities.link(WORKSPACE, node.id(), conclusionIds.get(i), pair);
+            entities.link(WORKSPACE, node.id(), theirs, other);
+        }
+        Explain.analyse("entities", "entity_links", "conclusions");
+    }
+
+    /**
+     * The dialectic's message tools, EXPLAINed with their membership predicate attached.
+     *
+     * <p>The scope comes from {@link MessageRepository#audibleTo} rather than being written out here,
+     * because a copy is what let this assertion drift: the real queries grew a correlated {@code
+     * EXISTS} over the membership windows, which changes the join order the planner considers, and
+     * the gate went on proving reachability for the predicate they used to have.
+     */
     @Test
     void dialecticMessageToolsReachTheirIndexes() {
+        seedMessagesAndMembership();
+
+        MessageRepository.Scope scope = MessageRepository.audibleTo(WORKSPACE, "alice", "s1");
+        java.util.List<Object> params = new java.util.ArrayList<>(scope.params());
+        params.add("marker7");
+        assertThat(
+                        Explain.plan(
+                                "SELECT m.id FROM messages m WHERE " + scope.sql()
+                                        + " AND to_tsvector('simple', m.content) @@ websearch_to_tsquery('simple', ?)"
+                                        + " ORDER BY m.created_at DESC LIMIT 10",
+                                params.toArray()))
+                .contains("ix_message_fts");
+    }
+
+    /** The membership predicate has an index of its own, or it is a scan per message row. */
+    @Test
+    void theMembershipPredicateReachesTheWindowIndex() {
+        seedMessagesAndMembership();
+
+        MessageRepository.Scope scope = MessageRepository.audibleTo(WORKSPACE, "alice", "s1");
+        assertThat(
+                        Explain.plan(
+                                "SELECT m.id FROM messages m WHERE " + scope.sql() + " LIMIT 10",
+                                scope.params().toArray()))
+                .contains("ix_speer_window_lookup");
+    }
+
+    private void seedMessagesAndMembership() {
         peers.getOrCreate(WORKSPACE, "alice", java.util.Map.of(), java.util.Map.of());
+        sessionPeers.join(WORKSPACE, "s1", "alice");
         java.util.List<MessageRepository.NewMessage> batch = new java.util.ArrayList<>();
         for (int i = 0; i < 200; i++) {
             batch.add(new MessageRepository.NewMessage("alice", "message about marker" + i, 4, java.util.Map.of()));
         }
         long start = sessions.nextSequence(WORKSPACE, "s1", batch.size());
         messages.insertBatch(WORKSPACE, "s1", start, batch);
-        Explain.analyse("messages");
-
-        assertThat(
-                        Explain.plan(
-                                "SELECT m.id FROM messages m WHERE m.workspace_name = ? AND m.session_name = ?"
-                                        + " AND to_tsvector('simple', m.content) @@ websearch_to_tsquery('simple', ?)"
-                                        + " ORDER BY m.created_at DESC LIMIT 10",
-                                WORKSPACE, "s1", "marker7"))
-                .contains("ix_message_fts");
-
+        Explain.analyse("messages", "session_peer_windows");
     }
 
     /**
@@ -197,14 +279,7 @@ class IndexUsageTest extends StoreTestBase {
      */
     @Test
     void substringSearchUsesAnOperatorTheTrigramIndexSupports() {
-        java.util.List<MessageRepository.NewMessage> batch = new java.util.ArrayList<>();
-        for (int i = 0; i < 200; i++) {
-            batch.add(new MessageRepository.NewMessage("alice", "message about marker" + i, 4, java.util.Map.of()));
-        }
-        peers.getOrCreate(WORKSPACE, "alice", java.util.Map.of(), java.util.Map.of());
-        messages.insertBatch(
-                WORKSPACE, "s1", sessions.nextSequence(WORKSPACE, "s1", batch.size()), batch);
-        Explain.analyse("messages");
+        seedMessagesAndMembership();
 
         assertThat(
                         Explain.plan(

@@ -4,6 +4,7 @@ import dev.dyad.core.model.Page;
 import dev.dyad.core.model.Session;
 import dev.dyad.store.Jsonb;
 import dev.dyad.store.RowMappers;
+import dev.dyad.store.WorkspaceSettingsService;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -19,6 +20,7 @@ public class SessionRepository {
     }
 
     public Session getOrCreate(String workspace, String name, Map<String, Object> metadata, Map<String, Object> configuration) {
+        WorkspaceSettingsService.rejectTuningKeys("session", configuration);
         jdbc.sql(
                         """
                         INSERT INTO sessions (workspace_name, name, metadata, configuration)

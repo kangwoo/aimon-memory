@@ -184,13 +184,25 @@ class ReconcilerTest {
     /** An entity with no vector is invisible to matching; the sweep is what makes that temporary. */
     @Test
     void backfillsMissingEntityVectors() {
-        entities.upsert(WORKSPACE, "부산", null, null);
+        String conclusionId = store("alice visited busan", embedder.embed("busan", EmbedPurpose.DOCUMENT), null);
+        var busan = entities.upsert(WORKSPACE, "부산", null, null);
+        // Edge first: matching considers only entities the pair has a link to.
+        entities.link(WORKSPACE, busan.id(), conclusionId, pair);
         assertThat(entities.match(pair, embedder.embed("부산", EmbedPurpose.QUERY), 5)).isEmpty();
 
         assertThat(reconciler.syncEntityEmbeddings()).isEqualTo(1);
         assertThat(entities.match(pair, embedder.embed("부산", EmbedPurpose.QUERY), 5)).hasSize(1);
     }
 
+    /**
+     * The retention cutoff is computed in the JVM and compared against a column the database stamps,
+     * so this one needs a live clock.
+     *
+     * <p>With the fixture's fixed clock it asserted on the calendar rather than on the reconciler:
+     * {@code processed_at} is {@code now()}, the cutoff was a constant instant in August, and the
+     * sweep therefore trimmed nothing from the day that instant passed. It was green when it was
+     * written and could never be green again.
+     */
     @Test
     void releasesDeadClaimsAndTrimsProcessedQueueRows() {
         WorkUnitKey key = WorkUnitKey.representation(WORKSPACE, "s1", pair);
@@ -198,7 +210,12 @@ class ReconcilerTest {
         queue.markProcessed(List.of(id));
         queue.claim(key.encode(), "dead", Duration.ofSeconds(-1));
 
-        var report = reconciler.run(Duration.ofSeconds(-1));
+        var live =
+                new ReconcilerService(
+                        conclusions, queue, workspaces, new EntityPipeline(entities, embedder), dreams,
+                        embedder, Clock.systemUTC());
+
+        var report = live.run(Duration.ofSeconds(-1));
 
         assertThat(report.claimsReleased()).isEqualTo(1);
         assertThat(report.queueRowsDeleted()).isEqualTo(1);
@@ -258,21 +275,69 @@ class ReconcilerTest {
                         embedder, Clock.systemUTC());
 
         // Inside the grace period nothing happens: a dream queued normally is already being worked on.
-        assertThat(live.requeueOrphanedDreams()).isZero();
+        assertThat(live.sweepOrphanedDreams().requeued()).isZero();
         assertThat(queue.pending(key.encode(), 10)).isEmpty();
 
         jdbc.sql("UPDATE dreams SET created_at = now() - interval '1 hour' WHERE id = ?")
                 .param(dream.id())
                 .update();
 
-        assertThat(live.requeueOrphanedDreams()).isEqualTo(1);
+        assertThat(live.sweepOrphanedDreams().requeued()).isEqualTo(1);
         assertThat(queue.pending(key.encode(), 10))
                 .singleElement()
                 .satisfies(item -> assertThat(item.payload()).containsEntry("dream_id", dream.id()));
 
         // And it does not queue the same dream twice on the next pass.
-        assertThat(live.requeueOrphanedDreams()).isZero();
+        assertThat(live.sweepOrphanedDreams().requeued()).isZero();
         assertThat(queue.pending(key.encode(), 10)).hasSize(1);
     }
 
+    /**
+     * The sweep gives up rather than paying forever.
+     *
+     * <p>Re-enqueueing assumes the unit was lost on its way to the queue. For a dream whose work will
+     * never close the row — a consumer that leaves it pending, a batch quarantined after max-attempts
+     * — the assumption never stops being true, so every pass found no pending item, enqueued another
+     * unit, and bought another model call. The count is what ends it, and failing the row is also what
+     * releases the partial unique index so the pair is not locked out of dreaming for good.
+     */
+    @Test
+    void abandonsADreamItHasRequeuedTooManyTimes() {
+        var dream = dreams.schedule(pair, DreamRepository.DreamType.CONSOLIDATE, 50).orElseThrow();
+        WorkUnitKey key = WorkUnitKey.dream(pair);
+        var live =
+                new ReconcilerService(
+                        conclusions, queue, workspaces, new EntityPipeline(entities, embedder), dreams,
+                        embedder, Clock.systemUTC());
+
+        for (int pass = 0; pass < 3; pass++) {
+            age(dream.id());
+            drainQueue(key);
+            assertThat(live.sweepOrphanedDreams().requeued()).isEqualTo(1);
+        }
+
+        age(dream.id());
+        drainQueue(key);
+        var sweep = live.sweepOrphanedDreams();
+        assertThat(sweep.requeued()).isZero();
+        assertThat(sweep.abandoned()).isEqualTo(1);
+        assertThat(dreams.find(dream.id()).orElseThrow().status()).isEqualTo("failed");
+
+        // The pair can dream again, which the pending row was preventing.
+        assertThat(dreams.schedule(pair, DreamRepository.DreamType.CONSOLIDATE, 50)).isPresent();
+    }
+
+    private void age(String dreamId) {
+        jdbc.sql("UPDATE dreams SET created_at = now() - interval '1 hour' WHERE id = ?")
+                .param(dreamId)
+                .update();
+    }
+
+    /** Stand in for a consumer that ran and never closed the dream row. */
+    private void drainQueue(WorkUnitKey key) {
+        queue.markProcessed(
+                queue.pending(key.encode(), 10).stream()
+                        .map(QueueRepository.QueueItem::id)
+                        .toList());
+    }
 }

@@ -127,7 +127,13 @@ class EntityTest extends StoreTestBase {
     @Test
     void nodesWithoutVectorsCanBeFoundForReindexing() {
         PairKey pair = seedPair("alice", "alice");
-        entities.upsert(WORKSPACE, "부산", null, null);
+        seedSession("s1");
+        String conclusionId =
+                conclusions.upsert(Drafts.explicit(pair, "s1", "alice visited busan")).conclusionId();
+        var busan = entities.upsert(WORKSPACE, "부산", null, null);
+        // Linked, because matching now considers only the pair's own entities. An unlinked node could
+        // never contribute a boost, so returning it only cost a top-k slot.
+        entities.link(WORKSPACE, busan.id(), conclusionId, pair);
         var pending = entities.withoutEmbedding(WORKSPACE, 10);
 
         assertThat(pending).extracting(e -> e.nameNorm()).containsExactly("부산");
@@ -136,6 +142,30 @@ class EntityTest extends StoreTestBase {
         entities.updateEmbedding(pending.get(0).id(), Drafts.embed("부산"));
         assertThat(entities.withoutEmbedding(WORKSPACE, 10)).isEmpty();
         assertThat(entities.match(pair, Drafts.embed("부산"), 5)).hasSize(1);
+    }
+
+    /**
+     * The crowding fix, stated as behaviour: a node the workspace shares but this pair has no edge to
+     * must not occupy a slot in the pair's top-k. It contributes nothing either way — the boost is
+     * computed from edges — so its only effect was to push the pair's own entities out of the window.
+     */
+    @Test
+    void matchIgnoresEntitiesThePairHasNoEdgeTo() {
+        PairKey mine = seedPair("alice", "alice");
+        PairKey theirs = seedPair("bob", "bob");
+        seedSession("s1");
+
+        String hers = conclusions.upsert(Drafts.explicit(mine, "s1", "alice lives in seoul")).conclusionId();
+        String his = conclusions.upsert(Drafts.explicit(theirs, "s1", "bob lives in seoul")).conclusionId();
+
+        var seoul = entities.upsert(WORKSPACE, "seoul", "PLACE", Drafts.embed("seoul"));
+        var busan = entities.upsert(WORKSPACE, "busan", "PLACE", Drafts.embed("busan"));
+        entities.link(WORKSPACE, seoul.id(), hers, mine);
+        entities.link(WORKSPACE, busan.id(), his, theirs);
+
+        assertThat(entities.match(mine, Drafts.embed("busan"), 5))
+                .extracting(m -> m.entity().nameNorm())
+                .containsExactly("seoul");
     }
 
     /** Deleting the conclusion row must take its edges with it, or the link table leaks. */

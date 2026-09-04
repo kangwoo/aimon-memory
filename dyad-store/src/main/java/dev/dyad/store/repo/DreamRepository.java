@@ -43,6 +43,7 @@ public class DreamRepository {
             int conclusionsAtStart,
             int produced,
             String error,
+            int requeueCount,
             Instant createdAt,
             Instant startedAt,
             Instant completedAt) {}
@@ -59,6 +60,7 @@ public class DreamRepository {
                             rs.getInt("conclusions_at_start"),
                             rs.getInt("produced"),
                             rs.getString("error"),
+                            rs.getInt("requeue_count"),
                             rs.getTimestamp("created_at").toInstant(),
                             rs.getTimestamp("started_at") == null ? null : rs.getTimestamp("started_at").toInstant(),
                             rs.getTimestamp("completed_at") == null
@@ -111,6 +113,18 @@ public class DreamRepository {
         jdbc.sql("UPDATE dreams SET status = 'failed', error = ?, completed_at = now() WHERE id = ?")
                 .params(error, id)
                 .update();
+    }
+
+    /**
+     * Note that the orphan sweep has put this dream back on the queue.
+     *
+     * <p>The count is the only thing that can end the sweep's loop. A pending row says nothing about
+     * whether its work unit was lost before it ever ran or is simply never going to close, and the
+     * sweep has to re-enqueue on the first reading; counting is how the second one stops being
+     * indistinguishable from it after a few passes.
+     */
+    public void recordRequeue(String id) {
+        jdbc.sql("UPDATE dreams SET requeue_count = requeue_count + 1 WHERE id = ?").param(id).update();
     }
 
     public List<Dream> pending(int limit) {

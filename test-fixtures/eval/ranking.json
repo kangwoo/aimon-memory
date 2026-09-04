@@ -1,6 +1,6 @@
 {
   "name": "ranking",
-  "note": "Graded relevance over one pair's memory. 3 answers the question, 2 is strongly relevant, 1 is related, absent is irrelevant. Judgements are the only part of the ranking story that encodes what a person actually wanted, so they are data a reviewer can argue with rather than assertions buried in a test.",
+  "note": "Graded relevance over one pair's memory. 3 answers the question, 2 is strongly relevant, 1 is related, absent is irrelevant. Judgements are the only part of the ranking story that encodes what a person actually wanted, so they are data a reviewer can argue with rather than assertions buried in a test.\n\n40 conclusions, 50 queries, 103 judgements. The plan called for 100-200 queries; this is short of that on purpose. The semantic signal here comes from a lexical stand-in rather than a real embedder, so past a certain size more hand-written judgements buy precision in the regression gate and nothing at all in confidence about the weights. Closing the rest of the gap needs real traffic, not more of this.",
   "corpus": [
     {
       "id": "c01",
@@ -242,6 +242,132 @@
       "entities": [],
       "timesDerived": 1,
       "daysAgo": 260
+    },
+    {
+      "id": "c27",
+      "content": "앨리스는 회의를 오전에 잡는 것을 선호한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 3,
+      "daysAgo": 35
+    },
+    {
+      "id": "c28",
+      "content": "앨리스는 슬랙보다 이메일로 소통하는 것을 선호한다",
+      "level": "explicit",
+      "entities": [
+        "슬랙"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 95
+    },
+    {
+      "id": "c29",
+      "content": "앨리스는 매주 금요일에 팀 회고를 진행한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 4,
+      "daysAgo": 14
+    },
+    {
+      "id": "c30",
+      "content": "앨리스는 대학에서 컴퓨터공학을 전공했다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 500
+    },
+    {
+      "id": "c31",
+      "content": "앨리스는 영어로 된 기술 문서를 읽는 데 어려움이 없다",
+      "level": "explicit",
+      "entities": [
+        "영어"
+      ],
+      "timesDerived": 2,
+      "daysAgo": 180
+    },
+    {
+      "id": "c32",
+      "content": "앨리스는 일본어를 독학하고 있다",
+      "level": "explicit",
+      "entities": [
+        "일본어"
+      ],
+      "timesDerived": 3,
+      "daysAgo": 21
+    },
+    {
+      "id": "c33",
+      "content": "앨리스는 자정 전에 잠자리에 든다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 4,
+      "daysAgo": 12
+    },
+    {
+      "id": "c34",
+      "content": "앨리스는 카페에서 아메리카노 대신 녹차를 주문한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 55
+    },
+    {
+      "id": "c35",
+      "content": "앨리스는 회사 근처로 이사할지 고민하고 있다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 9
+    },
+    {
+      "id": "c36",
+      "content": "앨리스는 전세보다 월세를 선호한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 9
+    },
+    {
+      "id": "c37",
+      "content": "앨리스는 밥에게 코드 리뷰를 자주 부탁한다",
+      "level": "explicit",
+      "entities": [
+        "밥"
+      ],
+      "timesDerived": 3,
+      "daysAgo": 18
+    },
+    {
+      "id": "c38",
+      "content": "앨리스는 백엔드 기술 스택 전반에 익숙하다",
+      "level": "deductive",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 45,
+      "sourceIds": [
+        "c16",
+        "c17",
+        "c18"
+      ]
+    },
+    {
+      "id": "c39",
+      "content": "앨리스는 계획을 미리 세워 두는 편이다",
+      "level": "inductive",
+      "entities": [],
+      "timesDerived": 1,
+      "daysAgo": 40,
+      "confidence": 0.55
+    },
+    {
+      "id": "c40",
+      "content": "앨리스는 겨울보다 여름을 좋아한다",
+      "level": "explicit",
+      "entities": [],
+      "timesDerived": 2,
+      "daysAgo": 110
     }
   ],
   "queries": [
@@ -378,6 +504,274 @@
         "c05": 2,
         "c06": 2,
         "c07": 3
+      }
+    },
+    {
+      "id": "q17",
+      "query": "앨리스의 전공",
+      "judgements": {
+        "c30": 3,
+        "c38": 1
+      }
+    },
+    {
+      "id": "q18",
+      "query": "앨리스는 어느 대학을 다녔나요",
+      "judgements": {
+        "c30": 2
+      }
+    },
+    {
+      "id": "q19",
+      "query": "코드 리뷰",
+      "judgements": {
+        "c37": 3,
+        "c11": 1
+      }
+    },
+    {
+      "id": "q20",
+      "query": "앨리스와 밥의 관계",
+      "judgements": {
+        "c11": 3,
+        "c37": 2
+      }
+    },
+    {
+      "id": "q21",
+      "query": "앨리스는 회의를 언제 잡나요",
+      "judgements": {
+        "c27": 3,
+        "c29": 2
+      }
+    },
+    {
+      "id": "q22",
+      "query": "팀 회고",
+      "judgements": {
+        "c29": 3
+      }
+    },
+    {
+      "id": "q23",
+      "query": "앨리스가 선호하는 소통 방식",
+      "judgements": {
+        "c28": 3,
+        "c27": 1
+      }
+    },
+    {
+      "id": "q24",
+      "query": "앨리스는 일본어를 할 줄 아나요",
+      "judgements": {
+        "c32": 3,
+        "c09": 1
+      }
+    },
+    {
+      "id": "q25",
+      "query": "일본",
+      "judgements": {
+        "c09": 3,
+        "c32": 2
+      }
+    },
+    {
+      "id": "q26",
+      "query": "앨리스의 외국어 능력",
+      "judgements": {
+        "c31": 3,
+        "c32": 3
+      }
+    },
+    {
+      "id": "q27",
+      "query": "앨리스의 수면 습관",
+      "judgements": {
+        "c33": 3,
+        "c19": 1
+      }
+    },
+    {
+      "id": "q28",
+      "query": "앨리스는 차를 좋아하나요",
+      "judgements": {
+        "c05": 3,
+        "c34": 3
+      }
+    },
+    {
+      "id": "q29",
+      "query": "녹차",
+      "judgements": {
+        "c34": 3,
+        "c05": 2
+      }
+    },
+    {
+      "id": "q30",
+      "query": "앨리스의 주거 계획",
+      "judgements": {
+        "c35": 3,
+        "c36": 2,
+        "c20": 1
+      }
+    },
+    {
+      "id": "q31",
+      "query": "월세",
+      "judgements": {
+        "c36": 3,
+        "c35": 1
+      }
+    },
+    {
+      "id": "q32",
+      "query": "앨리스는 어떤 언어로 개발하나요",
+      "judgements": {
+        "c17": 3,
+        "c38": 2,
+        "c16": 1
+      }
+    },
+    {
+      "id": "q33",
+      "query": "PostgreSQL",
+      "judgements": {
+        "c18": 3
+      }
+    },
+    {
+      "id": "q34",
+      "query": "앨리스의 기술 스택",
+      "judgements": {
+        "c38": 3,
+        "c16": 2,
+        "c17": 2,
+        "c18": 2
+      }
+    },
+    {
+      "id": "q35",
+      "query": "앨리스는 여름을 좋아하나요",
+      "judgements": {
+        "c40": 3,
+        "c08": 1
+      }
+    },
+    {
+      "id": "q36",
+      "query": "북한산",
+      "judgements": {
+        "c14": 3,
+        "c13": 2
+      }
+    },
+    {
+      "id": "q37",
+      "query": "앨리스의 가족",
+      "judgements": {
+        "c12": 3
+      }
+    },
+    {
+      "id": "q38",
+      "query": "대구",
+      "judgements": {
+        "c12": 3
+      }
+    },
+    {
+      "id": "q39",
+      "query": "앨리스는 운동을 하나요",
+      "judgements": {
+        "c13": 3,
+        "c15": 2
+      }
+    },
+    {
+      "id": "q40",
+      "query": "무릎 부상",
+      "judgements": {
+        "c15": 3
+      }
+    },
+    {
+      "id": "q41",
+      "query": "앨리스가 즐겨 듣는 음악",
+      "judgements": {
+        "c25": 3,
+        "c26": 2
+      }
+    },
+    {
+      "id": "q42",
+      "query": "재즈",
+      "judgements": {
+        "c26": 3,
+        "c25": 1
+      }
+    },
+    {
+      "id": "q43",
+      "query": "나비",
+      "judgements": {
+        "c22": 3,
+        "c21": 2
+      }
+    },
+    {
+      "id": "q44",
+      "query": "앨리스는 강아지를 키우나요",
+      "judgements": {
+        "c23": 3,
+        "c21": 2
+      }
+    },
+    {
+      "id": "q45",
+      "query": "재택근무",
+      "judgements": {
+        "c04": 3
+      }
+    },
+    {
+      "id": "q46",
+      "query": "앨리스는 아침을 먹나요",
+      "judgements": {
+        "c07": 3,
+        "c33": 1
+      }
+    },
+    {
+      "id": "q47",
+      "query": "앨리스의 성격",
+      "judgements": {
+        "c19": 3,
+        "c39": 3,
+        "c27": 1
+      }
+    },
+    {
+      "id": "q48",
+      "query": "앨리스의 예전 직장",
+      "judgements": {
+        "c02": 3,
+        "c01": 1
+      }
+    },
+    {
+      "id": "q49",
+      "query": "창가 자리",
+      "judgements": {
+        "c10": 3
+      }
+    },
+    {
+      "id": "q50",
+      "query": "앨리스의 건강검진",
+      "judgements": {
+        "c24": 3
       }
     }
   ]

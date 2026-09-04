@@ -15,12 +15,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * One model call per batch, producing conclusions and their entities together.
+ * One model call per batch <em>per observing pair</em>, producing conclusions and their entities
+ * together.
  *
- * <p>Fan-out happens after this, over storage: the same extraction is written to every observing
- * pair. Extracting per observer would multiply the cost of a group conversation by its size for no
- * gain — what differs between observers is the perspective, and that is decided when the batch is
- * routed, not by asking the model twice.
+ * <p>Per pair, not per batch, and the difference is worth being exact about because it is what a
+ * group session costs. The system prompt carries the observer and the observed — "record only what
+ * bob could reasonably conclude about alice" — so two pairs listening to the same messages are two
+ * different questions with two different right answers. Sharing one extraction between them would
+ * put alice's conclusions about herself into bob's memory, in her voice, with an audit trail saying
+ * bob derived them.
+ *
+ * <p>The bill is therefore O(observing pairs) per batch, which for N mutually-observing peers in a
+ * session is N + N(N−1). The specification assumed one call and N writes; ADR 0006 records why that
+ * is not what happens and what the lever is ({@code observe_others}).
+ *
+ * <p>What batching does buy is unaffected: the token and idle-flush gates collapse a burst of
+ * messages to one call per pair, so the multiplier is over observers rather than over traffic.
  */
 @Service
 public class DeriverService {
@@ -94,7 +104,7 @@ public class DeriverService {
         return result.value();
     }
 
-    /** Extract once, then write the same result to every observing pair. */
+    /** Extract from this pair's point of view, then write the result to that pair. */
     public ConclusionWriter.WriteResult deriveAndWrite(
             PairKey pair, String sessionName, List<Message> messages) {
         DerivedConclusions derived = derive(pair, messages);

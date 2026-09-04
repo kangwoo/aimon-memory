@@ -77,9 +77,18 @@ public class WorkerLoop implements AutoCloseable {
             return;
         }
         workers = Executors.newVirtualThreadPerTaskExecutor();
+        // One scheduler thread per in-flight unit, not one for all of them.
+        //
+        // Every heartbeat is a JDBC UPDATE, so it needs a pool connection — and the work units it is
+        // keeping alive are holding connections of their own. On a single thread, one extension
+        // blocked on connection acquisition holds up every other unit's heartbeat behind it; two
+        // stalled cycles at a third of the TTL are enough for the reconciler to reap claims from
+        // units that are still running, which is the duplicate-run race the heartbeat was added to
+        // prevent, reintroduced through a shared point of failure.
         heartbeats =
-                Executors.newSingleThreadScheduledExecutor(
-                        r -> Thread.ofPlatform().name("dyad-claim-heartbeat").unstarted(r));
+                Executors.newScheduledThreadPool(
+                        Math.max(1, properties.concurrency()),
+                        r -> Thread.ofPlatform().name("dyad-claim-heartbeat", 0).unstarted(r));
         pollThread = Thread.ofPlatform().name("dyad-poll").start(this::pollForever);
         reconcilerThread = Thread.ofPlatform().name("dyad-reconciler").start(this::reconcileForever);
         log.info("worker {} started with concurrency {}", properties.workerId(), properties.concurrency());
@@ -130,8 +139,15 @@ public class WorkerLoop implements AutoCloseable {
     private void runClaimed(String encodedKey) {
         Timer.Sample sample = Timer.start(meters);
         List<QueueRepository.QueueItem> items = List.of();
-        ScheduledFuture<?> heartbeat = startHeartbeat(encodedKey);
+        // Inside the try, and null until it exists. scheduleAtFixedRate throws
+        // RejectedExecutionException once the executor is shut down — reachable from close(), where
+        // awaitTermination can time out and shutdownNow() then runs while units are still starting.
+        // Thrown from above the try, that skipped the finally: the claim lingered until its TTL and
+        // the concurrency permit was never given back, so the worker ran one slot narrower for the
+        // rest of the process's life, and again for every unit that lost the same race.
+        ScheduledFuture<?> heartbeat = null;
         try {
+            heartbeat = startHeartbeat(encodedKey);
             WorkUnitKey key = WorkUnitKey.parse(encodedKey);
             items = queue.pending(encodedKey, properties.itemsPerUnit());
             if (items.isEmpty()) {
@@ -151,7 +167,9 @@ public class WorkerLoop implements AutoCloseable {
             queue.recordFailure(ids(items), e.getMessage());
             quarantineIfExhausted(items);
         } finally {
-            heartbeat.cancel(false);
+            if (heartbeat != null) {
+                heartbeat.cancel(false);
+            }
             queue.release(encodedKey, properties.workerId());
             slots.release();
             sample.stop(meters.timer("dyad.worker.unit"));

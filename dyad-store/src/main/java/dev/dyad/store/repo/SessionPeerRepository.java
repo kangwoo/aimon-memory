@@ -26,7 +26,8 @@ public class SessionPeerRepository {
      * "defer to the workspace default". A session configured with {@code observe_others: false} started
      * observing again on the peer's next message, silently, in the direction of recording more.
      *
-     * <p>A peer who left and came back gets a fresh window, not a resurrected one.
+     * <p>A peer who left and came back gets a fresh window, not a resurrected one — and the window
+     * they had before is kept, in {@code session_peer_windows}, rather than overwritten.
      */
     public void join(String workspace, String session, String peer) {
         jdbc.sql(
@@ -40,6 +41,7 @@ public class SessionPeerRepository {
                         """)
                 .params(workspace, session, peer)
                 .update();
+        openWindow(workspace, session, peer);
     }
 
     /**
@@ -63,12 +65,44 @@ public class SessionPeerRepository {
                         """)
                 .params(workspace, session, peer, observeMe, observeOthers)
                 .update();
+        openWindow(workspace, session, peer);
+    }
+
+    /**
+     * Open a membership window, unless one is already open.
+     *
+     * <p>{@code session_peers} keeps one row per membership, so re-entry can only move {@code
+     * joined_at} forward and every earlier window is lost. That was invisible to the fan-out, which
+     * only ever asks who is in the room now, and wrong for the dialectic's message tools, which ask
+     * who was in the room when something was said: a peer who left and came back could no longer
+     * search anything from before the rejoin, their own transcript included, and the tool reported it
+     * as "no messages found" rather than as a boundary.
+     *
+     * <p>The conflict target is the partial unique index, so the call ingestion makes on every
+     * message costs one no-op insert while the peer is present rather than a new window per message.
+     */
+    private void openWindow(String workspace, String session, String peer) {
+        jdbc.sql(
+                        """
+                        INSERT INTO session_peer_windows (workspace_name, session_name, peer_name)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (workspace_name, session_name, peer_name)
+                          WHERE left_at IS NULL
+                          DO NOTHING
+                        """)
+                .params(workspace, session, peer)
+                .update();
     }
 
     /** Soft leave: the window closes but the row stays, because past messages still need it. */
     public void leave(String workspace, String session, String peer) {
         jdbc.sql(
                         "UPDATE session_peers SET left_at = now()"
+                                + " WHERE workspace_name = ? AND session_name = ? AND peer_name = ? AND left_at IS NULL")
+                .params(workspace, session, peer)
+                .update();
+        jdbc.sql(
+                        "UPDATE session_peer_windows SET left_at = now()"
                                 + " WHERE workspace_name = ? AND session_name = ? AND peer_name = ? AND left_at IS NULL")
                 .params(workspace, session, peer)
                 .update();
@@ -117,11 +151,20 @@ public class SessionPeerRepository {
      * membership in a session is not a place to conjure a peer into being by typo.
      */
     public void replace(String workspace, String session, List<Membership> roster) {
+        String[] staying = roster.stream().map(Membership::peer).toArray(String[]::new);
         jdbc.sql(
                         "UPDATE session_peers SET left_at = now()"
                                 + " WHERE workspace_name = ? AND session_name = ? AND left_at IS NULL"
                                 + " AND peer_name <> ALL (?)")
-                .params(workspace, session, roster.stream().map(Membership::peer).toArray(String[]::new))
+                .params(workspace, session, staying)
+                .update();
+        // The windows close with them. Left open, a removed peer keeps searching everything said
+        // after they were removed, which is the failure this whole predicate exists to prevent.
+        jdbc.sql(
+                        "UPDATE session_peer_windows SET left_at = now()"
+                                + " WHERE workspace_name = ? AND session_name = ? AND left_at IS NULL"
+                                + " AND peer_name <> ALL (?)")
+                .params(workspace, session, staying)
                 .update();
         for (Membership member : roster) {
             join(workspace, session, member.peer(), member.observeMe(), member.observeOthers());

@@ -105,6 +105,23 @@ class ReplayHarnessTest {
      * and returned an empty stream — an SSE response that completed successfully having emitted
      * nothing, with no miss raised to say the fixture was the wrong kind.
      */
+    /**
+     * Separating the two kinds must not rehash the blocking corpus.
+     *
+     * <p>Emitting {@code "stream": false} would have moved every key ever recorded, turning each
+     * existing fixture into a {@link FixtureMissException} — a 503 per call, and in CI, where the mode
+     * is {@code replay}, a suite-wide failure that only re-recording against a live provider could
+     * clear. The new kind is the one with nothing recorded yet, so it is the one that moves.
+     */
+    @Test
+    void addingTheStreamFlagLeavesBlockingKeysWhereTheyWere() {
+        ChatCall base = call("system", "user");
+        assertThat(FixtureKey.canonical(base, false))
+                .as("a blocking call's canonical form must not mention streaming at all")
+                .doesNotContain("stream");
+        assertThat(FixtureKey.canonical(base, true)).contains("\"stream\":true");
+    }
+
     @Test
     void streamingAndBlockingCallsDoNotShareAKey(@TempDir Path directory) {
         ChatCall base = call("system", "user");

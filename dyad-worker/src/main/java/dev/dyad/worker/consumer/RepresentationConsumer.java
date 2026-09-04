@@ -17,9 +17,11 @@ import org.springframework.stereotype.Component;
 /**
  * Turns a batch of queued messages into conclusions.
  *
- * <p>One model call for the whole batch, which is the reason the queue serialises on the pair: two
- * concurrent batches for the same pair would race in dedup and produce near-duplicates that stage 3
- * then has to clean up after the fact.
+ * <p>One model call for the whole batch — the batch being one pair's share of a session's messages,
+ * since the queue keys on the pair. That serialisation is what keeps two concurrent batches for the
+ * same pair from racing in dedup and producing near-duplicates for stage 3 to clean up afterwards.
+ * Other pairs observing the same messages have their own work units and their own calls; ADR 0006
+ * records why.
  */
 @Component
 public class RepresentationConsumer implements WorkUnitConsumer {

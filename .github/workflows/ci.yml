@@ -26,6 +26,16 @@ jobs:
           # CI never talks to a live model. Recording is a deliberate local act.
           DYAD_LLM_MODE: replay
 
+      # Not part of `check`: the timings it prints describe the runner, not the system, so they are a
+      # measurement rather than a gate. Its assertions are a gate — concurrent writers to one pair
+      # must produce no errors and a gap-free sequence, and dedup must still converge under
+      # contention — so CI runs it at a small size instead of leaving it to be run by hand and
+      # therefore never.
+      - name: load (small)
+        run: ./gradlew :dyad-worker:loadTest --no-daemon -Ddyad.load.pairs=8 -Ddyad.load.perPair=20
+        env:
+          DYAD_LLM_MODE: replay
+
       - name: publish test results
         if: always()
         uses: actions/upload-artifact@v4

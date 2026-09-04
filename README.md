@@ -10,9 +10,14 @@ Built from `dyad-design.md` and `dyad-build-plan.md`.
 
 ## What it does
 
-Messages go in over HTTP and return immediately. A worker batches them, extracts durable facts with
-one model call, deduplicates against what is already known, and files the result under every pair
-that was observing.
+Messages go in over HTTP and return immediately. A worker batches them, extracts durable facts,
+deduplicates against what is already known, and files the result under the pair that was observing.
+
+Extraction runs once per observing pair, not once per batch — the prompt is written from the
+observer's side, so what `bob` may conclude about `alice` is a different question from what `alice`
+concludes about herself. Batching removes the per-message cost, not the per-observer one; a session
+of N mutually-observing peers costs N + N(N−1) calls per batch, and `observe_others` is the lever
+([ADR 0006](docs/adr/0006-fanout-cost.md)).
 
 Reading has three tiers:
 
@@ -40,14 +45,20 @@ narrative — and it has Tier 1 as one of its tools, which is what keeps its ite
 ## Running it
 
 ```sh
-docker compose up -d          # postgres 16 + pgvector
-./gradlew check               # 240+ tests, Testcontainers starts its own database
+docker compose up -d               # postgres 16 + pgvector
+./gradlew check                    # 360 tests, Testcontainers starts its own database
 
-./gradlew :dyad-api:bootRun   # HTTP, port 8080
+export DYAD_JWT_SECRET=$(openssl rand -base64 48)
+./gradlew :dyad-api:bootRun        # HTTP, port 8080
 ./gradlew :dyad-worker:bootRun
 ```
 
-Both processes start without credentials. The embedder falls back to a local hashing implementation
+`DYAD_JWT_SECRET` is required and has no default. A development default in `application.yml` is a
+signing key published in the repository: a deployment that forgets the variable would start cleanly,
+sign production tokens with it, and hand an admin token to anyone who has read the source. Startup
+fails instead.
+
+Everything else starts without credentials. The embedder falls back to a local hashing implementation
 and the model provider to one that fails with a clear message when something asks for a completion —
 enough to exercise every path, and clearly labelled as not suitable for anything else.
 
@@ -64,8 +75,8 @@ export DYAD_LLM_FALLBACK=anthropic ANTHROPIC_API_KEY=...   # optional
 
 `scripts/smoke.sh` drives a running pair of processes over HTTP: health, workspace, ingestion,
 conclusion injection, Korean recall with the full signal breakdown, entity provenance, audit trail.
-It proves the things unit tests cannot — that both jars boot, that Flyway applies all five migrations
-to an empty database, and that Nori analysis reaches the query path.
+It proves the things unit tests cannot — that both jars boot, that Flyway applies every migration to
+an empty database, and that Nori analysis reaches the query path.
 
 ```sh
 DYAD_JWT_SECRET=... ./scripts/smoke.sh
@@ -86,6 +97,11 @@ curl -s localhost:8080/v1/workspaces/demo/recall \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"query":"where does alice work","observer":"alice","observed":"alice"}'
 ```
+
+That workspace token can mint further tokens itself, as long as each is no wider than it is — a
+session token for one conversation, handed to a browser, without an admin key going anywhere near
+the service that issues it. Widening is refused: a different workspace, a broader scope, or a peer
+the caller does not already speak for.
 
 ---
 
@@ -148,7 +164,7 @@ belief no human ever stated.
 ## Testing
 
 ```
-227+  tests, all green
+360  tests, all green
 ```
 
 | Layer | Method | Gate |
@@ -160,8 +176,10 @@ belief no human ever stated.
 | Authorisation | route allowlist | a route with no policy entry fails the build |
 | Architecture | ArchUnit | dependencies point one way |
 | Index usage | `EXPLAIN` with seqscan disabled | every index reachable by its real query |
-| Ranking quality | nDCG / MRR against a baseline | no regression, per query and in aggregate |
-| Load | concurrent readers and writers | no errors, gap-free sequence under contention |
+| Ranking quality | nDCG / MRR against a baseline | no regression, per query and in aggregate; the baseline records the corpus it was measured on |
+| Load | concurrent readers and writers | no errors, gap-free sequence under contention (CI runs a small profile) |
+| Configuration | validated at the write boundary | an unknown key or an unusable value is a 422, never a silent fallback |
+| Provider wire format | a real server on an ephemeral port | the request body is asserted, not the object that produced it |
 
 Two things worth knowing about the suite.
 
@@ -188,19 +206,20 @@ places. They prove the formula is implemented as specified. They cannot tell a c
 of a bad formula from a correct implementation of a good one, because a wrong weight produces a
 consistent answer the fixture faithfully records.
 
-**A labelled ranking set** (`test-fixtures/eval/ranking.json`) — 26 Korean conclusions, 16 queries,
-39 graded judgements — scored with nDCG@5/@10, MRR and recall@10 against a committed baseline. The
+**A labelled ranking set** (`test-fixtures/eval/ranking.json`) — 40 Korean conclusions, 50 queries,
+103 graded judgements — scored with nDCG@5/@10, MRR and recall@10 against a committed baseline. The
 gate is one-sided: improvements pass, regressions fail, per query as well as in aggregate.
 
 ```
-mean nDCG@5 0.565   nDCG@10 0.649   MRR 0.705   recall@10 0.646
+mean nDCG@5 0.671   nDCG@10 0.700   MRR 0.795   recall@10 0.655
 ```
 
 Read those as a regression baseline, not as a quality claim. Without provider credentials the
 embedder is lexical, so `sem` behaves like a second keyword signal — which is exactly why the weakest
 queries are the conceptual ones (*"앨리스의 여행 계획"* scores 0.000, because nothing lexical connects
 "여행 계획" to "오사카행 항공권을 예약했다") and the strongest are the ones naming a term outright. The
-gap between those two numbers is a fair estimate of what a real embedder has to buy.
+gap between those two numbers is a fair estimate of what a real embedder has to buy. Twelve of the
+fifty queries score below 0.35 and every one of them is conceptual, which is the shape of that gap.
 
 Verified by breaking it: shifting the weights onto recency drops the mean and the gate fails.
 
@@ -217,13 +236,17 @@ Stated plainly rather than left to be discovered.
 - **The ranking weights are still untuned against real intent.** The gate above catches regressions;
   it cannot say the weights are right, because the judgements are scored against a synthetic
   embedder. That needs real traffic, and the weights are configuration for exactly this reason.
+- **The evaluation set is 50 queries, not the 100–200 the plan asked for.** Deliberately: with a
+  lexical stand-in for the embedder, more hand-written judgements sharpen the regression gate and add
+  nothing to confidence in the weights. The rest of that gap closes with traffic, not with authoring.
 - **No committed LLM fixtures.** The replay mechanism is proven end to end, including a multi-step
   tool loop, but every recorded call in the suite comes from a scripted backend.
   `./scripts/record-fixtures.sh` records against a real provider once credentials exist.
 - **Prompts are unscored.** The set and the rubric are written; nobody has run them against a real
   model and filled the sheet in.
 - **Load figures are from a laptop.** The harness and the numbers are real (see the runbook), but
-  they describe a container on a developer machine, not production hardware.
+  they describe a container on a developer machine, not production hardware. CI runs the profile at a
+  small size for its assertions — no errors, a gap-free sequence — and ignores its timings.
 
 ## Documents
 

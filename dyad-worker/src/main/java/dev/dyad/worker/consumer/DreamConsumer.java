@@ -36,14 +36,26 @@ public class DreamConsumer implements WorkUnitConsumer {
         }
     }
 
-    /** The card refresh shares this consumer's shape but never touches the dream scheduling state. */
+    /**
+     * The card refresh shares this consumer's shape, and closes its dream row the same way.
+     *
+     * <p>It used not to touch the scheduling state at all. The row it was scheduled from stayed {@code
+     * pending} forever, and {@code ReconcilerService.requeueOrphanedDreams} — which exists to rescue a
+     * dream whose work unit never reached the queue — cannot tell that from a dream that has already
+     * run: it found no pending queue item, concluded the unit was lost, and enqueued another. Every
+     * reconciler pass, for the life of the deployment, each one a model call in {@link
+     * PeerCardService#refresh}. The partial unique index meanwhile counts a pending row as in flight,
+     * so the pair could never dream again and {@code POST /dreams} answered 409 permanently.
+     */
     @Component
     public static class CardRefreshConsumer implements WorkUnitConsumer {
 
         private final PeerCardService cards;
+        private final DreamRepository dreams;
 
-        public CardRefreshConsumer(PeerCardService cards) {
+        public CardRefreshConsumer(PeerCardService cards, DreamRepository dreams) {
             this.cards = cards;
+            this.dreams = dreams;
         }
 
         @Override
@@ -53,7 +65,23 @@ public class DreamConsumer implements WorkUnitConsumer {
 
         @Override
         public void consume(WorkUnitKey key, List<QueueRepository.QueueItem> items) {
-            cards.refresh(key.pair());
+            // One refresh for the unit, but every row that asked for it gets closed: the queue
+            // serialises on the key, so two schedules for the same pair arrive as two items here.
+            List<String> dreamIds =
+                    items.stream()
+                            .map(item -> item.payload().get("dream_id"))
+                            .filter(java.util.Objects::nonNull)
+                            .map(Object::toString)
+                            .toList();
+            dreamIds.forEach(dreams::start);
+            try {
+                List<String> lines = cards.refresh(key.pair());
+                dreamIds.forEach(id -> dreams.complete(id, lines.size()));
+            } catch (RuntimeException e) {
+                // Failed, not left pending. A pending row is indistinguishable from lost work.
+                dreamIds.forEach(id -> dreams.fail(id, e.getMessage()));
+                throw e;
+            }
         }
     }
 }

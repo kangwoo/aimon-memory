@@ -46,7 +46,30 @@ public class EntityRepository implements EntityStore {
     }
 
     /**
-     * Nearest entity nodes, with live link counts inside the pair.
+     * The boost query, as a constant so the index gate can EXPLAIN the statement that ships.
+     *
+     * <p>It EXPLAINed a hand-written single-table lookup instead, which stopped describing this the
+     * moment the candidate set became a join — the assertion kept passing for a query no caller
+     * issues, which is the one failure an index-usage gate cannot afford.
+     */
+    static final String MATCH_SQL =
+            """
+            SELECT e.id, e.workspace_name, e.name_norm, e.name_display, e.kind,
+                   (e.embedding <=> ?::vector) AS distance,
+                   count(*) AS link_count
+            FROM entities e
+            JOIN entity_links l
+              ON l.entity_id = e.id
+             AND l.workspace_name = ? AND l.observer = ? AND l.observed = ?
+            JOIN conclusions c ON c.id = l.conclusion_id AND c.deleted_at IS NULL
+            WHERE e.workspace_name = ? AND e.embedding IS NOT NULL
+            GROUP BY e.id
+            ORDER BY e.embedding <=> ?::vector
+            LIMIT ?
+            """;
+
+    /**
+     * Nearest entity nodes <em>that this pair actually has edges to</em>, with live link counts.
      *
      * <p>The count drives {@code countWeight}, so it has to exclude deleted conclusions. Counting them
      * would make an entity look overused and permanently deflate its boost after any churn — silently,
@@ -57,6 +80,19 @@ public class EntityRepository implements EntityStore {
      * tenant's links: "Seoul" attached to five conclusions in the querying pair and four hundred across
      * the workspace scored 0.006 instead of 0.984, so the {@code ent} signal collapsed to nothing for
      * exactly the entities it exists to reward, and got worse as the deployment grew.
+     *
+     * <p><b>The candidate set is the pair's own entities, not the workspace's.</b> Nodes are shared
+     * across a workspace by design, so a top-k taken over all of them fills up with entities the
+     * querying pair has no edge to — which contribute nothing, since {@link
+     * dev.dyad.recall.signal.EntityBoost} works from edges — while the pair's own entities fall off
+     * the end. That is the same failure as the workspace-wide count above, one step earlier in the
+     * query, and it also gets worse as the deployment grows. Nothing is lost by excluding them: an
+     * entity with no edge in the pair could never have produced a boost.
+     *
+     * <p>The cost is that the vector index no longer serves the ordering — the join has to be
+     * evaluated first, so this is a scan over the pair's entities rather than an index walk over the
+     * workspace's. That is the right trade at the scale a pair operates at, and it is bounded by the
+     * pair rather than by the deployment.
      */
     @Override
     public List<EntityMatch> match(PairKey pair, float[] q, int topK) {
@@ -64,19 +100,7 @@ public class EntityRepository implements EntityStore {
             return List.of();
         }
         String vector = Vectors.toLiteral(q);
-        return jdbc.sql(
-                        """
-                        SELECT e.id, e.workspace_name, e.name_norm, e.name_display, e.kind,
-                               (e.embedding <=> ?::vector) AS distance,
-                               (SELECT count(*) FROM entity_links l
-                                  JOIN conclusions c ON c.id = l.conclusion_id AND c.deleted_at IS NULL
-                                WHERE l.entity_id = e.id
-                                  AND l.workspace_name = ? AND l.observer = ? AND l.observed = ?) AS link_count
-                        FROM entities e
-                        WHERE e.workspace_name = ? AND e.embedding IS NOT NULL
-                        ORDER BY e.embedding <=> ?::vector
-                        LIMIT ?
-                        """)
+        return jdbc.sql(MATCH_SQL)
                 .params(
                         vector,
                         pair.workspaceName(),

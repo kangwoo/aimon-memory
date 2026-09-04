@@ -27,12 +27,30 @@ across the model call, so concurrency is bounded by `dyad.worker.concurrency` ra
 Flyway runs at startup on both processes. Concurrent starts are safe — Flyway takes a lock — but the
 first deploy of a new migration should go out on one instance.
 
-Indexes arrive per phase (`V2`–`V5`) rather than all in `V1`, because an unused HNSW index still
+Indexes arrive per phase (`V2`–`V11`) rather than all in `V1`, because an unused HNSW index still
 slows every insert. Before adding another, check that something queries it.
 
 `V2` and `V3` build HNSW indexes. On a large table that is slow and takes a write lock; use
 `CREATE INDEX CONCURRENTLY` in a manual step for an existing deployment and mark the migration as
 applied.
+
+**An applied migration is immutable.** Flyway checksums a migration from its raw bytes, before
+placeholder substitution, and `validateOnMigrate` is on. Editing `V1` does not re-run it — it stops
+every existing deployment from booting with a checksum mismatch, while fresh databases and the
+Testcontainers suite, which build the schema from nothing every time, stay green and say nothing.
+`V9` exists because the vector columns needed to follow `dyad.embed.dimensions` and `V1` had already
+shipped at 1536.
+
+`V9` alters the vector columns only while they hold no vectors, and otherwise fails naming both
+widths. Changing the width is a re-embedding, not a type change: pgvector cannot reinterpret a
+1536-wide value as 3072-wide. To go through with it, clear the column
+(`UPDATE conclusions SET embedding = NULL`) and let the reconciler's backfill rebuild it. Note that
+pgvector's HNSW indexes only cover vectors up to 2000 dimensions.
+
+`V11` adds `session_peer_windows`, the append-only record of when each session membership opened and
+closed. `session_peers` remains the current state and the observe flags; the windows are what the
+dialectic's message tools scope by, so a peer who leaves and rejoins keeps what they heard the first
+time without gaining the gap in between.
 
 ## Configuration that matters
 
@@ -45,8 +63,34 @@ applied.
 | `batch.idle_flush_seconds` | 3 | Lower for conversational UX, raise to batch harder under load |
 | `language` | `und` | `ko` or `en`; changing it needs a re-index (below) |
 
+Every value above is checked when it is written: an unknown key, a weight vector that does not sum to
+1.00, or a number outside the range it can be honoured in is a 422 rather than a 200 followed by a
+silent fallback to the defaults. The check sits on the repository rather than on a route, so it
+covers create as well as update and cannot be missed by the next endpoint that writes the column. A
+row written straight into the table is not checked, and the API falls back to defaults for it — with
+a warning naming the workspace, which is the only trace such a row leaves.
+
+Tuning belongs to the workspace. Peers and sessions have a `configuration` column of their own, but
+nothing reads it back into settings, so a tuning key set there is rejected with a 422 rather than
+stored and quietly ignored. Keys the system does not recognise are still accepted there as opaque
+client data.
+
 Workspace configuration is cached in the API process and evicted on write through the configuration
 endpoint. Changing it directly in the database needs a restart.
+
+## Secrets
+
+`DYAD_JWT_SECRET` is required by the API and has no default; a missing or short value stops startup
+rather than falling back to something. It signs every token, so rotating it invalidates all of them
+at once — there is no revocation list, and token lifetimes are capped at 30 days for that reason.
+
+`dyad.jwt.lifetime` is checked against that cap at startup too, not only when a token is minted. Set
+above 30 days it would otherwise boot cleanly and then fail every `POST /v1/tokens` that omits an
+explicit lifetime — which is the normal case — with a 400 blaming the request.
+
+`/v1/tokens` narrows an existing token rather than creating one from nothing: a workspace token can
+mint peer and session tokens inside its own workspace, and nothing can mint something wider than
+itself. The first admin token has to be signed out of band (`scripts/smoke.sh` shows how).
 
 ## Common situations
 

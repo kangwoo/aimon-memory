@@ -35,6 +35,16 @@ public class DialecticService {
     /** Budget for the tool output replayed into the streaming fallback. */
     public static final int MAX_FINDINGS_TOKENS = 6_000;
 
+    private static final String FINDINGS_HEADER = "What the tools returned so far:\n\n";
+
+    private static final String FINDINGS_INSTRUCTION =
+            "Answer from these results alone. The search was cut short at its iteration limit, so"
+                    + " say so if what is here does not settle the question.";
+
+    /** What the header and the closing instruction cost, reserved out of the findings budget. */
+    private static final int FINDINGS_FRAMING_TOKENS =
+            TokenCounter.count(FINDINGS_HEADER) + TokenCounter.count(FINDINGS_INSTRUCTION);
+
     private final LlmClient llm;
     private final ToolRegistry tools;
 
@@ -121,16 +131,27 @@ public class DialecticService {
      * <p>Failed calls are included and labelled. "That search errored" is information the model needs
      * to say the answer could not be established; silently dropping it looks like an empty result.
      */
-    private static String renderFindings(List<ToolCall> findings) {
-        StringBuilder sb = new StringBuilder("What the tools returned so far:\n\n");
-        for (ToolCall call : findings) {
+    static String renderFindings(List<ToolCall> findings) {
+        StringBuilder sb = new StringBuilder();
+        // Newest first. The budget is spent from the top, so what falls off the end is the oldest
+        // search rather than the one the model made last knowing what the earlier ones returned.
+        for (int i = findings.size() - 1; i >= 0; i--) {
+            ToolCall call = findings.get(i);
             sb.append(call.name()).append(' ').append(call.argumentsJson()).append('\n');
             sb.append(call.failed() ? "  failed: " : "  ").append(call.output()).append("\n\n");
         }
-        sb.append(
-                "Answer from these results alone. The search was cut short at its iteration limit, so"
-                        + " say so if what is here does not settle the question.");
-        return TokenCounter.truncate(sb.toString(), MAX_FINDINGS_TOKENS);
+        // The body is truncated; the framing is not.
+        //
+        // Truncating the assembled string cut the instruction off first, because it was appended
+        // last — and it went missing in exactly the case it is written for. This fallback fires when
+        // the loop hit its iteration limit with tools still returning, which is when the rendered
+        // output most reliably exceeds the budget. What reached the model then was a bare dump of
+        // tool output with no framing at all: it was not told the search had been cut short, and not
+        // told to answer from these results alone, against a system prompt that says it knows
+        // nothing else.
+        return FINDINGS_HEADER
+                + TokenCounter.truncate(sb.toString(), MAX_FINDINGS_TOKENS - FINDINGS_FRAMING_TOKENS)
+                + FINDINGS_INSTRUCTION;
     }
 
     /**

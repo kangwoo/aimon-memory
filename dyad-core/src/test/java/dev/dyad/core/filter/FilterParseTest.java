@@ -3,6 +3,7 @@ package dev.dyad.core.filter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -72,5 +73,49 @@ class FilterParseTest {
         assertThat(Filter.and(Filter.ALL, Filter.ALL)).isInstanceOf(Filter.All.class);
         assertThat(Filter.and(Filter.ALL, Filter.eq("level", "explicit")))
                 .isEqualTo(new Filter.Cmp("level", FilterOp.EQ, "explicit"));
+    }
+
+    /**
+     * Parsing is recursive, so an unbounded nesting depth is an unbounded stack. A
+     * {@link StackOverflowError} is not a {@link RuntimeException}: it escapes the API's error
+     * handling entirely and the caller sees a dropped connection rather than a 422.
+     */
+    @Test
+    void aFilterNestedPastTheLimitIsRejected() {
+        Map<String, Object> deep = Map.of("level", "explicit");
+        for (int i = 0; i < Filter.MAX_DEPTH + 2; i++) {
+            deep = Map.of("NOT", deep);
+        }
+        Map<String, Object> tooDeep = deep;
+
+        assertThatThrownBy(() -> Filter.parse(tooDeep))
+                .isInstanceOf(FilterException.class)
+                .hasMessageContaining("nested");
+    }
+
+    /** Depth is not the only size: a flat OR of thousands of terms is shallow and still a plan. */
+    @Test
+    void aFilterWithTooManyPredicatesIsRejected() {
+        List<Map<String, Object>> terms = new ArrayList<>();
+        for (int i = 0; i < Filter.MAX_NODES + 1; i++) {
+            terms.add(Map.of("session_name", "s" + i));
+        }
+        Map<String, Object> wide = Map.of("OR", terms);
+
+        assertThatThrownBy(() -> Filter.parse(wide))
+                .isInstanceOf(FilterException.class)
+                .hasMessageContaining("predicates");
+    }
+
+    /** The limits have to leave room for a filter a person would actually write. */
+    @Test
+    void anOrdinaryNestedFilterStillParses() {
+        Map<String, Object> filter =
+                Map.of(
+                        "level", "explicit",
+                        "OR", List.of(Map.of("session_name", "s1"), Map.of("session_name", "s2")),
+                        "NOT", Map.of("sync_state", "failed"));
+
+        assertThat(Filter.parse(filter)).isInstanceOf(Filter.And.class);
     }
 }

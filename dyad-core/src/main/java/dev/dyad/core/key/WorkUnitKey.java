@@ -41,6 +41,19 @@ public record WorkUnitKey(
                 TaskType.DREAM, pair.workspaceName(), null, pair.observer(), pair.observed());
     }
 
+    /**
+     * The card refresh unit for a pair.
+     *
+     * <p>Here rather than spelled out at each call site so a caller has a way to name the unit that
+     * takes an already-resolved {@link PairKey}. A controller assembling one from its own request
+     * parameters has built a pair scope nothing checked, which is the hole {@code PairScope} and its
+     * ArchUnit gate exist to close — and a five-argument constructor is exactly how that reappears.
+     */
+    public static WorkUnitKey cardRefresh(PairKey pair) {
+        return new WorkUnitKey(
+                TaskType.CARD_REFRESH, pair.workspaceName(), null, pair.observer(), pair.observed());
+    }
+
     public PairKey pair() {
         return new PairKey(workspaceName, observer, observed);
     }

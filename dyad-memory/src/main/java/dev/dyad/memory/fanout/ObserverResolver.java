@@ -17,9 +17,12 @@ import java.util.List;
  *   <li>{@code observe_others} — a listener keeps a memory of the speaker, pair {@code (listener, speaker)}
  * </ul>
  *
- * <p>Fan-out is over storage, not over model calls: one extraction runs and its output is written to
- * every resulting pair. Getting that backwards makes a five-person session cost five times as much
- * for the same answer.
+ * <p>Every pair this returns becomes its own work unit, its own batch and its own extraction call —
+ * fan-out is over model calls, not only over storage. That is deliberate (ADR 0006): the extraction
+ * prompt is written from the observer's side, so two observers of the same messages are asking two
+ * different questions. It is also the cost model to know before opening a large room, since a
+ * session of N mutually-observing peers produces N + N(N−1) pairs; {@code observe_others} is the
+ * lever that turns the quadratic term off.
  *
  * <p>Only peers whose membership window covers the message are considered. Someone who joined an hour
  * later did not hear it, and their memory should not contain it.

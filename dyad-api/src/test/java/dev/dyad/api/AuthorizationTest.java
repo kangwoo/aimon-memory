@@ -40,19 +40,68 @@ class AuthorizationTest extends ApiTestBase {
                 .andExpect(status().isOk());
     }
 
-    /** Minting tokens is the one thing a workspace token must never do. */
+    /**
+     * Delegation, which is what the nested scopes are for: a service holding a workspace token hands
+     * a client a token for one session, without an admin key anywhere near it.
+     */
     @Test
-    void onlyAnAdminTokenCanMintTokens() throws Exception {
+    void aWorkspaceTokenCanMintANarrowerTokenForItsOwnWorkspace() throws Exception {
         String body = "{\"scope\":\"session\",\"workspace\":\"ws\",\"session\":\"s1\"}";
 
         mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON).content(body)
                         .header("Authorization", bearer(workspaceToken("ws"))))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("session"));
 
         mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON).content(body)
                         .header("Authorization", bearer(adminToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("session"));
+    }
+
+    /** Delegation only ever narrows. Every widening is a route back to a token the caller never had. */
+    @Test
+    void mintingCannotWidenTheTokenThatAsked() throws Exception {
+        // A broader scope than the caller holds.
+        mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scope\":\"admin\"}")
+                        .header("Authorization", bearer(workspaceToken("ws"))))
+                .andExpect(status().isForbidden());
+
+        // Another workspace.
+        mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scope\":\"peer\",\"workspace\":\"other\",\"peer\":\"alice\"}")
+                        .header("Authorization", bearer(workspaceToken("ws"))))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * A peer token cannot mint at all — the route requires a workspace scope, which no peer or
+     * session token satisfies. It matters more than it looks: a session token carries no peer, and a
+     * token with no peer may post as any participant, so minting one from a peer token would launder
+     * the speaker check on every message.
+     */
+    @Test
+    void aPeerOrSessionTokenCannotMintAnything() throws Exception {
+        String body = "{\"scope\":\"session\",\"workspace\":\"ws\",\"session\":\"s1\"}";
+
+        mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("Authorization", bearer(peerToken("ws", "alice"))))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("Authorization", bearer(sessionToken("ws", "s1", true))))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Expiry is the only thing that ends a leaked token, so a request cannot ask for an endless one. */
+    @Test
+    void aTokenLifetimeIsCapped() throws Exception {
+        mvc.perform(post("/v1/tokens").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scope\":\"workspace\",\"workspace\":\"ws\",\"lifetimeSeconds\":315360000}")
+                        .header("Authorization", bearer(adminToken())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("bad_lifetime"));
     }
 
     /** A token that names nothing is a workspace token wearing a session token's label. */

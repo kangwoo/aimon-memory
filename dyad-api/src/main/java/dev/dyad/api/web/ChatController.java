@@ -88,21 +88,21 @@ public class ChatController {
         // a second one silently discarded the first: only the interrupt fired, and a worker that was
         // already past the provider call and inside the send loop never saw it — `live` stayed true,
         // and every send after the timeout threw into a socket nobody was reading.
-        emitter.onTimeout(
-                () -> {
-                    live.set(false);
-                    Thread running = worker.get();
-                    if (running != null) {
-                        running.interrupt();
-                    }
-                });
-        emitter.onCompletion(() -> live.set(false));
-        emitter.onError(e -> live.set(false));
+        emitter.onTimeout(() -> stop(live, worker));
+        // The same stop, for the same reason. A client that closes the tab mid-provider-call ends the
+        // emitter through onError, not onTimeout; clearing `live` alone only stops the loop once the
+        // call it is blocked in returns, so the model call was still paid for in full.
+        emitter.onCompletion(() -> stop(live, worker));
+        emitter.onError(e -> stop(live, worker));
 
-        worker.set(
+        // Built unstarted, published, then started. `start()` returns the thread only after it is
+        // already running, so setting the reference from its result leaves a window in which the
+        // timeout callback reads null, skips the interrupt, and lets a worker that is blocked inside
+        // the provider call run to completion — the leak this block exists to close.
+        Thread runner =
                 Thread.ofVirtual()
                         .name("dyad-sse")
-                        .start(
+                        .unstarted(
                                 () -> {
                                     try {
                                         dialectic
@@ -128,8 +128,25 @@ public class ChatController {
                                             emitter.completeWithError(e);
                                         }
                                     }
-                                }));
+                                });
+        worker.set(runner);
+        runner.start();
         return emitter;
+    }
+
+    /**
+     * Stop the loop and wake the worker, whichever of the two it is currently blocked on.
+     *
+     * <p>Never the calling thread itself. {@code emitter.complete()} on the success path runs the
+     * completion callback inline, so a worker finishing normally would arrive here and set its own
+     * interrupt flag — with the rest of {@code complete()} still to run underneath it.
+     */
+    private static void stop(AtomicBoolean live, AtomicReference<Thread> worker) {
+        live.set(false);
+        Thread running = worker.get();
+        if (running != null && running != Thread.currentThread()) {
+            running.interrupt();
+        }
     }
 
     private DialecticService.Question question(

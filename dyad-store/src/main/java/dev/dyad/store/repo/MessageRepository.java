@@ -175,16 +175,25 @@ public class MessageRepository {
      *
      * <p>The window bounds match {@code ObserverResolver}'s. Someone who joined an hour later did not
      * hear it, and it is not theirs to search.
+     *
+     * <p><b>Every window, not the current one.</b> Scoping this to {@code session_peers} read only the
+     * membership a peer holds now, and re-entry moves that row's {@code joined_at} forward: a peer
+     * removed from a session and then speaking in it again lost search access to everything before the
+     * rejoin, their own transcript included, and the dialectic reported that as "no messages found"
+     * rather than as a boundary. {@code session_peer_windows} keeps the closed ones, so the predicate
+     * can be "was in the room when this was said" without widening to "has ever been a member" — which
+     * would have handed back the gap they genuinely did not hear.
      */
     private static final String AUDIBLE_TO_OBSERVER =
-            "EXISTS (SELECT 1 FROM session_peers sp"
-                    + " WHERE sp.workspace_name = m.workspace_name AND sp.session_name = m.session_name"
-                    + " AND sp.peer_name = ? AND sp.joined_at <= m.created_at"
-                    + " AND (sp.left_at IS NULL OR sp.left_at > m.created_at))";
+            "EXISTS (SELECT 1 FROM session_peer_windows w"
+                    + " WHERE w.workspace_name = m.workspace_name AND w.session_name = m.session_name"
+                    + " AND w.peer_name = ? AND w.joined_at <= m.created_at"
+                    + " AND (w.left_at IS NULL OR w.left_at > m.created_at))";
 
-    private record Scope(String sql, List<Object> params) {}
+    /** Package-private so {@code IndexUsageTest} can EXPLAIN the predicate the tools actually run. */
+    record Scope(String sql, List<Object> params) {}
 
-    private static Scope audibleTo(String workspace, String observer, String session) {
+    static Scope audibleTo(String workspace, String observer, String session) {
         StringBuilder sql = new StringBuilder("m.workspace_name = ?");
         List<Object> params = new ArrayList<>();
         params.add(workspace);

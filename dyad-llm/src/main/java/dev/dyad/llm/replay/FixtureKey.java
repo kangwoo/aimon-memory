@@ -31,6 +31,10 @@ import java.security.NoSuchAlgorithmException;
  * replayed stream found the chat fixture, read a null chunk list and returned an empty stream: an SSE
  * response that completed normally having emitted nothing, with no fixture miss to say so. Recording
  * was worse — each write rebuilds the file from scratch, so recording one erased the other.
+ *
+ * <p>The field is emitted only when the call streams, so a blocking call hashes to exactly what it
+ * hashed to before streaming entered the key. Writing {@code "stream": false} would have separated
+ * the two kinds by invalidating the entire recorded corpus.
  */
 public final class FixtureKey {
 
@@ -54,7 +58,15 @@ public final class FixtureKey {
         ObjectNode root = Json.object();
         root.put("model", call.model());
         root.put("system", call.system());
-        root.put("stream", streaming);
+        // Emitted only when it is true. A blocking call's canonical form is byte-for-byte what it was
+        // before streaming entered the key, so its hash is unchanged and the recorded corpus stays
+        // replayable — writing "stream": false would have rehashed every fixture ever recorded and
+        // turned each one into a FixtureMissException, a 503 per call and a suite-wide failure in CI
+        // that only re-recording against a live provider could clear. Separating the two kinds needs
+        // exactly one of them to move, and the new kind is the one that has nothing recorded yet.
+        if (streaming) {
+            root.put("stream", true);
+        }
 
         ArrayNode turns = root.putArray("turns");
         for (ChatTurn turn : call.turns()) {

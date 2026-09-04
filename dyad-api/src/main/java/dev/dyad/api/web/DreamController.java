@@ -7,7 +7,6 @@ import dev.dyad.api.security.DyadPrincipal;
 import dev.dyad.api.security.PairScope;
 import dev.dyad.core.ConflictException;
 import dev.dyad.core.key.PairKey;
-import dev.dyad.core.key.TaskType;
 import dev.dyad.core.key.WorkUnitKey;
 import dev.dyad.memory.dream.DreamerService;
 import dev.dyad.memory.dream.PeerCardService;
@@ -70,12 +69,9 @@ public class DreamController {
                         .orElseThrow(() -> new ConflictException("a dream is already in flight for " + pair));
 
         queue.enqueue(
-                new WorkUnitKey(
-                        type == DreamRepository.DreamType.CARD_REFRESH ? TaskType.CARD_REFRESH : TaskType.DREAM,
-                        workspace,
-                        null,
-                        pair.observer(),
-                        pair.observed()),
+                type == DreamRepository.DreamType.CARD_REFRESH
+                        ? WorkUnitKey.cardRefresh(pair)
+                        : WorkUnitKey.dream(pair),
                 Map.of("dream_id", dream.id()),
                 0);
         return toResponse(dream);

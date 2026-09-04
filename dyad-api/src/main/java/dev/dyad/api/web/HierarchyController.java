@@ -72,6 +72,15 @@ public class HierarchyController {
                 .orElseThrow(() -> new NotFoundException("workspace", workspace));
     }
 
+    /**
+     * Replace a workspace's tuning configuration.
+     *
+     * <p>Validated before it is stored — in {@link WorkspaceRepository}, so every route that writes a
+     * configuration column gets the check rather than the one that was noticed. Anything unrecognised
+     * or out of range is a 422 rather than a 200 followed by a silent fallback to defaults on the next
+     * read: the failure mode that makes a tuning session produce default rankings with nothing to
+     * indicate why.
+     */
     @PutMapping("/v1/workspaces/{workspace}/configuration")
     public Dtos.WorkspaceResponse updateWorkspaceConfiguration(
             @PathVariable String workspace, @Valid @RequestBody Requests.UpdateConfiguration body) {

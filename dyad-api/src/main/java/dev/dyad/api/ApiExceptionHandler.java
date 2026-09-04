@@ -4,6 +4,7 @@ import dev.dyad.api.dto.Dtos;
 import dev.dyad.api.security.ForbiddenException;
 import dev.dyad.api.security.UnauthorizedException;
 import dev.dyad.core.ConflictException;
+import dev.dyad.core.config.ConfigurationException;
 import dev.dyad.core.DyadException;
 import dev.dyad.core.NotFoundException;
 import dev.dyad.core.filter.FilterException;
@@ -37,6 +38,17 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(FilterException.class)
     public ResponseEntity<Dtos.ErrorResponse> filter(FilterException e) {
+        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.getMessage());
+    }
+
+    /**
+     * A configuration the system will not store.
+     *
+     * <p>422 for the same reason a rejected filter is: the request parsed, the values are the
+     * problem, and accepting them would mean answering 200 to a change that has no effect.
+     */
+    @ExceptionHandler(ConfigurationException.class)
+    public ResponseEntity<Dtos.ErrorResponse> configuration(ConfigurationException e) {
         return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.getMessage());
     }
 
@@ -128,7 +140,7 @@ public class ApiExceptionHandler {
                 switch (e.code()) {
                     case "bad_key", "bad_level", "bad_actor", "bad_event", "bad_scope",
                             "bad_reasoning_level", "bad_response_format", "batch_too_large",
-                            "bad_sync_state", "bad_draft" -> HttpStatus.BAD_REQUEST;
+                            "bad_sync_state", "bad_draft", "bad_lifetime" -> HttpStatus.BAD_REQUEST;
                     case "llm_not_configured", "missing_config" -> HttpStatus.SERVICE_UNAVAILABLE;
                     case "fixture_miss" -> HttpStatus.SERVICE_UNAVAILABLE;
                     default -> HttpStatus.INTERNAL_SERVER_ERROR;

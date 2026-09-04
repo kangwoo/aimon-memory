@@ -42,6 +42,26 @@ public sealed interface Filter {
 
     Filter ALL = new All();
 
+    /**
+     * How deeply a caller may nest {@code AND} / {@code OR} / {@code NOT}.
+     *
+     * <p>Parsing is recursive, so without a cap the depth of an attacker-supplied filter is the depth
+     * of the JVM stack: a few hundred kilobytes of nested objects reaches a {@link StackOverflowError},
+     * which is not a {@code RuntimeException} and so escapes the API's error handling entirely — the
+     * request thread dies and the caller gets a dropped connection. Anything a person writes by hand
+     * is one or two levels; sixteen is far past where a real query lives.
+     */
+    int MAX_DEPTH = 16;
+
+    /**
+     * How many predicates one filter may contain.
+     *
+     * <p>Depth alone is not enough — a flat {@code OR} of fifty thousand terms is shallow, parses
+     * fine, and renders a SQL statement the database has to plan. The limit is on the compiled shape
+     * rather than the request body because that is the thing with a cost downstream.
+     */
+    int MAX_NODES = 256;
+
     static Filter and(Filter... parts) {
         List<Filter> kept = new ArrayList<>();
         for (Filter f : parts) {
@@ -63,10 +83,25 @@ public sealed interface Filter {
     /**
      * Parse the wire form.
      *
-     * @throws FilterException on any shape the vocabulary does not cover
+     * @throws FilterException on any shape the vocabulary does not cover, and on one that is within
+     *     the vocabulary but larger than {@link #MAX_DEPTH} or {@link #MAX_NODES}
      */
-    @SuppressWarnings("unchecked")
     static Filter parse(Map<String, ?> raw) {
+        Filter parsed = parse(raw, 0);
+        int nodes = count(parsed);
+        if (nodes > MAX_NODES) {
+            throw new FilterException(
+                    "filter has " + nodes + " predicates; at most " + MAX_NODES + " are accepted");
+        }
+        return parsed;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Filter parse(Map<String, ?> raw, int depth) {
+        if (depth > MAX_DEPTH) {
+            throw new FilterException(
+                    "filter is nested more than " + MAX_DEPTH + " levels deep");
+        }
         if (raw == null || raw.isEmpty()) {
             return ALL;
         }
@@ -75,13 +110,13 @@ public sealed interface Filter {
             String key = e.getKey();
             Object value = e.getValue();
             switch (key.toUpperCase(java.util.Locale.ROOT)) {
-                case "AND" -> parts.add(new And(parseList(value, "AND")));
-                case "OR" -> parts.add(new Or(parseList(value, "OR")));
+                case "AND" -> parts.add(new And(parseList(value, "AND", depth)));
+                case "OR" -> parts.add(new Or(parseList(value, "OR", depth)));
                 case "NOT" -> {
                     if (!(value instanceof Map<?, ?> m)) {
                         throw new FilterException("NOT expects an object, got " + describe(value));
                     }
-                    parts.add(new Not(parse((Map<String, ?>) m)));
+                    parts.add(new Not(parse((Map<String, ?>) m, depth + 1)));
                 }
                 default -> parts.add(parseField(key, value));
             }
@@ -89,8 +124,19 @@ public sealed interface Filter {
         return parts.size() == 1 ? parts.get(0) : new And(parts);
     }
 
+    /** Predicates in the parsed tree. Counted after parsing, so it sees the compiled shape. */
+    private static int count(Filter filter) {
+        return switch (filter) {
+            case All ignored -> 0;
+            case Cmp ignored -> 1;
+            case Not not -> count(not.operand());
+            case And and -> and.operands().stream().mapToInt(Filter::count).sum();
+            case Or or -> or.operands().stream().mapToInt(Filter::count).sum();
+        };
+    }
+
     @SuppressWarnings("unchecked")
-    private static List<Filter> parseList(Object value, String label) {
+    private static List<Filter> parseList(Object value, String label, int depth) {
         if (!(value instanceof List<?> list)) {
             throw new FilterException(label + " expects an array, got " + describe(value));
         }
@@ -102,7 +148,7 @@ public sealed interface Filter {
             if (!(item instanceof Map<?, ?> m)) {
                 throw new FilterException(label + " operands must be objects, got " + describe(item));
             }
-            out.add(parse((Map<String, ?>) m));
+            out.add(parse((Map<String, ?>) m, depth + 1));
         }
         return out;
     }

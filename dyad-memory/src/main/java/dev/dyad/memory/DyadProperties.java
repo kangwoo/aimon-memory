@@ -44,7 +44,7 @@ public record DyadProperties(Llm llm, Embed embed, Text text) {
             openAiBaseUrl = blankTo(openAiBaseUrl, "https://api.openai.com/v1");
             openAiModel = blankTo(openAiModel, "gpt-4.1-mini");
             anthropicBaseUrl = blankTo(anthropicBaseUrl, "https://api.anthropic.com");
-            anthropicModel = blankTo(anthropicModel, "claude-sonnet-4-5");
+            anthropicModel = blankTo(anthropicModel, "claude-opus-5");
             attemptsPerProvider = attemptsPerProvider <= 0 ? 2 : attemptsPerProvider;
             timeout = timeout == null ? Duration.ofSeconds(120) : timeout;
         }
