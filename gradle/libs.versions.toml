@@ -22,7 +22,7 @@ mavenPublish    = "0.30.0"
 # every other module here is a service and stays on the toolchain above. Kept as a version rather than a
 # literal so the two numbers that have to move together sit next to each other.
 javaCompat      = "17"
-aimonCore       = "0.2.3"
+aimonCore       = "0.2.4"
 
 [libraries]
 jooq              = { module = "org.jooq:jooq",                            version.ref = "jooq" }

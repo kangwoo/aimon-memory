@@ -29,19 +29,19 @@ dependencies {
 /**
  * Refuses to publish against an aimon-core that does not contain the API this module implements.
  *
- * The composite build in settings.gradle.kts substitutes a local aimon-core checkout, which is the only place
- * `PeerMemory` currently exists — at.aimon.core:aimon-core:0.2.3 on Central predates it. So this module compiles
- * green here and would publish a POM pointing at an artifact that cannot load it: every consumer would get a
- * NoClassDefFoundError on first use, and the first evidence would be on Central, permanently.
+ * This module was written before any release had `PeerMemory`: at.aimon.core:aimon-core:0.2.3 carried the older
+ * ObservationStore generation, so the build compiled against a sibling checkout through a composite build, and
+ * publishing then would have shipped a POM pointing at an artifact no consumer could load. 0.2.4 has the five tiers,
+ * the composite is gone, and this check now passes on its own.
  *
- * The check asks the resolution result what actually answered the coordinate. A composite substitution resolves to
- * a *project*, not a module, and that alone is the condition to refuse on — it means the green build measured a
- * working tree that no consumer can download. A module that resolved normally is then opened and checked for the
- * class, which catches the other case: a released aimon-core that is simply too old.
+ * It stays because the failure it names is not a thing that happened once. Both ways back into it are one line: an
+ * `includeBuild` in settings.gradle.kts, which resolves the coordinate to a *project* and makes a green build a
+ * measurement of a working tree nobody can download; or a downgrade of `aimonCore` below 0.2.4. The check asks the
+ * resolution result which of the two answered, and opens the jar to be sure the class is actually in it.
  *
  * Deliberately not a detached configuration resolving the coordinate by hand. That was the first attempt and it
- * reported success: composite substitution applies to detached configurations too, so the check downloaded nothing
- * and inspected the same local checkout it was written to catch.
+ * reported success even against 0.2.3: composite substitution applies to detached configurations too, so the check
+ * downloaded nothing and inspected the same local checkout it was written to catch.
  */
 val verifyCoreIsReleased by tasks.registering {
     description = "Fails if the aimon-core this module is built against is a local checkout or lacks PeerMemory."
@@ -58,11 +58,9 @@ val verifyCoreIsReleased by tasks.registering {
         val id = core.id
         if (id !is ModuleComponentIdentifier) {
             throw GradleException(
-                "aimon-core resolved to $id — a local checkout substituted by the composite build in " +
-                    "settings.gradle.kts, not a released artifact. Publishing aimon-memory-client now would ship a " +
-                    "POM pointing at an aimon-core that cannot load it. Release an aimon-core containing the " +
-                    "five-tier PeerMemory API, bump `aimonCore` in gradle/libs.versions.toml, and build with " +
-                    "-PaimonCoreDir=none.",
+                "aimon-core resolved to $id — a project rather than a released artifact, which means something has " +
+                    "put an `includeBuild` back in settings.gradle.kts. Publishing aimon-memory-client from that " +
+                    "build would ship a POM pointing at an aimon-core nobody else has.",
             )
         }
 
@@ -74,8 +72,7 @@ val verifyCoreIsReleased by tasks.registering {
         if (!hasPeerMemory) {
             throw GradleException(
                 "$id does not contain at.aimon.core.memory.PeerMemory, so publishing aimon-memory-client against " +
-                    "it would ship an artifact no consumer can load. Bump `aimonCore` in " +
-                    "gradle/libs.versions.toml to a release that has it.",
+                    "it would ship an artifact no consumer can load. 0.2.4 is the first release that has it.",
             )
         }
         logger.lifecycle("$id is a released artifact and contains PeerMemory")

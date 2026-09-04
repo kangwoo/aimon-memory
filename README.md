@@ -179,16 +179,11 @@ is not narrowed by session, because a conclusion outlives the session that produ
 observation's confidence is derived from its level and its reinforcement rather than supplied; and
 ingestion queues rather than derives, so a receipt never reports `derived`.
 
-**The module is not published yet, and cannot be.** It implements an API that no released aimon-core
-contains — `at.aimon.core:aimon-core:0.2.3` on Central predates `PeerMemory` — so the build compiles
-it against a sibling checkout of aimon-core and drops the module entirely when there is none:
-
-```sh
-git clone https://github.com/kangwoo/aimon-core ../aimon-core   # or -PaimonCoreDir=/path/to/it
-```
-
-`:aimon-memory-client:verifyCoreIsReleased` refuses a publish while that is true, so the artifact
-cannot reach Central pointing at an aimon-core that could not load it.
+It builds against `at.aimon.core:aimon-core:0.2.4`, the first release containing the five tiers, and
+needs nothing but that coordinate — no sibling checkout, and no composite build.
+`:aimon-memory-client:verifyCoreIsReleased` is what keeps that true: it refuses a publish when
+aimon-core resolved to a project rather than a released artifact, or when the jar it resolved does
+not actually contain `PeerMemory`.
 
 ---
 
