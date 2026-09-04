@@ -1,6 +1,6 @@
 # aimon-memory 구현 작업 계획
 
-> `dyad-design.md`를 실행 가능한 단위로 분해한 작업 계획.
+> `aimon-memory-design.md`를 실행 가능한 단위로 분해한 작업 계획.
 > 전제: **3명 · 전체 범위(P0~P6) · Spring MVC + 가상 스레드**
 > 작성일: 2026-08-31
 
@@ -94,7 +94,7 @@ LLM은 비결정적이라 **record/replay 하네스 없이는 회귀 테스트�
 Gradle 멀티모듈. 의존 방향은 **아래에서 위로만** — 화살표 역행 금지를 ArchUnit으로 강제한다.
 
 ```
-dyad/
+aimon-memory/
 ├── build.gradle.kts              루트: 버전 카탈로그, 공통 플러그인
 ├── gradle/libs.versions.toml     의존성 단일 정의
 ├── docker-compose.yml            postgres(pgvector) + (선택) redis
@@ -368,9 +368,9 @@ S0을 시작하는 날 바로 할 일.
 □ 리포 생성, Java 25 툴체인 고정 (gradle/libs.versions.toml)
 □ Spring Boot + spring.threads.virtual.enabled=true 로 헬스체크 1개 띄우기
 □ docker-compose up → pgvector 컨테이너에서 CREATE EXTENSION vector 확인
-□ Flyway V1__initial.sql 작성 — dyad-design.md §03 스키마 전체
+□ Flyway V1__initial.sql 작성 — aimon-memory-design.md §03 스키마 전체
 □ jOOQ 코드젠이 Flyway 결과를 읽도록 배선
-□ dyad-core에 SPI 6종 인터페이스만 먼저 커밋 → 3인 리뷰 → 머지
+□ aimon-memory-core에 SPI 6종 인터페이스만 먼저 커밋 → 3인 리뷰 → 머지
 □ LLM replay 하네스 골격 + 픽스처 1개로 왕복 확인
 □ CI: check + Testcontainers 통합 테스트 실행되게
 □ 트랙별 담당자 확정, ADR 0001 (스택 결정) 기록
