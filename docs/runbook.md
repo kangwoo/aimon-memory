@@ -5,9 +5,9 @@
 Two processes from one artifact set:
 
 ```sh
-./gradlew :dyad-api:bootJar :dyad-worker:bootJar
-java -jar dyad-api/build/libs/dyad-api-*.jar
-java -jar dyad-worker/build/libs/dyad-worker-*.jar
+./gradlew :aimon-memory-api:bootJar :aimon-memory-worker:bootJar
+java -jar aimon-memory-api/build/libs/aimon-memory-api-*.jar
+java -jar aimon-memory-worker/build/libs/aimon-memory-worker-*.jar
 ```
 
 They differ in how they should be treated:
@@ -20,7 +20,7 @@ They differ in how they should be treated:
 | Pool size | ~20 | ~2× concurrency |
 
 The worker pool is small on purpose. A work unit holds a connection only around its queries, never
-across the model call, so concurrency is bounded by `dyad.worker.concurrency` rather than by the pool.
+across the model call, so concurrency is bounded by `aimon.memory.worker.concurrency` rather than by the pool.
 
 ## Migrations
 
@@ -38,7 +38,7 @@ applied.
 placeholder substitution, and `validateOnMigrate` is on. Editing `V1` does not re-run it — it stops
 every existing deployment from booting with a checksum mismatch, while fresh databases and the
 Testcontainers suite, which build the schema from nothing every time, stay green and say nothing.
-`V9` exists because the vector columns needed to follow `dyad.embed.dimensions` and `V1` had already
+`V9` exists because the vector columns needed to follow `aimon.memory.embed.dimensions` and `V1` had already
 shipped at 1536.
 
 `V9` alters the vector columns only while they hold no vectors, and otherwise fails naming both
@@ -80,11 +80,11 @@ endpoint. Changing it directly in the database needs a restart.
 
 ## Secrets
 
-`DYAD_JWT_SECRET` is required by the API and has no default; a missing or short value stops startup
+`AIMON_MEMORY_JWT_SECRET` is required by the API and has no default; a missing or short value stops startup
 rather than falling back to something. It signs every token, so rotating it invalidates all of them
 at once — there is no revocation list, and token lifetimes are capped at 30 days for that reason.
 
-`dyad.jwt.lifetime` is checked against that cap at startup too, not only when a token is minted. Set
+`aimon.memory.jwt.lifetime` is checked against that cap at startup too, not only when a token is minted. Set
 above 30 days it would otherwise boot cleanly and then fail every `POST /v1/tokens` that omits an
 explicit lifetime — which is the normal case — with a 400 blaming the request.
 
@@ -95,8 +95,8 @@ itself. The first admin token has to be signed out of band (`scripts/smoke.sh` s
 ## Common situations
 
 **Conclusions are not appearing.** Check `queue` for unprocessed rows and `work_unit_claims` for a
-stale claim. Claims expire after `dyad.worker.claim-ttl`; the reconciler removes them on its next
-pass. A work unit stuck at `attempts >= dyad.worker.max-attempts` has been quarantined, and
+stale claim. Claims expire after `aimon.memory.worker.claim-ttl`; the reconciler removes them on its next
+pass. A work unit stuck at `attempts >= aimon.memory.worker.max-attempts` has been quarantined, and
 `last_error` says why.
 
 ```sql
@@ -107,7 +107,7 @@ FROM queue WHERE processed = FALSE GROUP BY work_unit_key ORDER BY min(created_a
 **Recall returns nothing for a Korean query.** Check `analyzedQuery` in the response first — it is
 there for exactly this. An empty or wrong analysis means the workspace `language` is not `ko`. Nori
 splitting a proper noun is the other common cause; the fix is a user dictionary at
-`DYAD_NORI_USER_DICT`.
+`AIMON_MEMORY_NORI_USER_DICT`.
 
 **A conclusion exists but semantic search never returns it.** Its embedding did not land. The
 reconciler retries automatically; `conclusion_events` carries a `sync_error` detail explaining why.
@@ -132,15 +132,15 @@ vectors on its next pass.
 
 ## Observability
 
-Prometheus at `/actuator/prometheus` on the **management port** (`DYAD_MANAGEMENT_PORT`, default
+Prometheus at `/actuator/prometheus` on the **management port** (`AIMON_MEMORY_MANAGEMENT_PORT`, default
 9090), not the service port. The auth interceptor covers `/v1/**` only, so metrics served on the main
 connector would be readable by anything that can reach the service. Publish 8080; do not publish 9090.
 
 | Metric | Watch for |
 |---|---|
-| `dyad_worker_unit_seconds` | p99 climbing means provider latency, not database |
-| `dyad_worker_items_total{task}` | flat while `queue` grows means claims are stuck |
-| `dyad_worker_quarantined_total` | any increase is a poison batch worth reading |
+| `aimon_memory_worker_unit_seconds` | p99 climbing means provider latency, not database |
+| `aimon_memory_worker_items_total{task}` | flat while `queue` grows means claims are stuck |
+| `aimon_memory_worker_quarantined_total` | any increase is a poison batch worth reading |
 | `hikaricp_connections_pending` | sustained non-zero means the pool is undersized |
 
 The one alert worth having from day one is oldest unprocessed queue row older than
@@ -171,8 +171,8 @@ the whole table has to scan every workspace's entries to reach one pair. Any new
 
 ## Load profile
 
-`./gradlew :dyad-worker:loadTest` runs concurrent ingestion and recall and prints percentiles. Knobs:
-`-Ddyad.load.pairs`, `-Ddyad.load.perPair`, `-Ddyad.load.readers`, `-Ddyad.load.writers`.
+`./gradlew :aimon-memory-worker:loadTest` runs concurrent ingestion and recall and prints percentiles. Knobs:
+`-Daimon.memory.load.pairs`, `-Daimon.memory.load.perPair`, `-Daimon.memory.load.readers`, `-Daimon.memory.load.writers`.
 
 On a developer laptop against a container, 20 pairs of 100 conclusions with 32 concurrent readers:
 

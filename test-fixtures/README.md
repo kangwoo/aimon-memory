@@ -11,15 +11,15 @@ Content-addressed by SHA-256 over `(model, system, messages, tools, response_for
 provider round trip, so a multi-step tool loop is several files and each replays on its own inputs.
 
 ```
-DYAD_LLM_MODE=replay   serve from here; a miss fails the test    (the default, and what CI runs)
-DYAD_LLM_MODE=record   call the provider and write the fixture
-DYAD_LLM_MODE=live     call the provider, record nothing
+AIMON_MEMORY_LLM_MODE=replay   serve from here; a miss fails the test    (the default, and what CI runs)
+AIMON_MEMORY_LLM_MODE=record   call the provider and write the fixture
+AIMON_MEMORY_LLM_MODE=live     call the provider, record nothing
 ```
 
 Re-record after a deliberate prompt change:
 
 ```sh
-DYAD_LLM_MODE=record OPENAI_API_KEY=... ./gradlew test --tests 'dev.dyad.memory.*'
+AIMON_MEMORY_LLM_MODE=record OPENAI_API_KEY=... ./gradlew test --tests 'at.aimon.memory.engine.*'
 ```
 
 A miss after an accidental prompt change is the harness working. Read the diff before re-recording.
@@ -29,7 +29,7 @@ A miss after an accidental prompt change is the harness working. Read the diff b
 Every signal and the fused score to six decimal places, plus the resulting order.
 
 ```sh
-./gradlew test -Ddyad.golden.update=true   # rewrite instead of assert
+./gradlew test -Daimon.memory.golden.update=true   # rewrite instead of assert
 ```
 
 That switch makes every test pass by definition, so a diff touching these files needs the same

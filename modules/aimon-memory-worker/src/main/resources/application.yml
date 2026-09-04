@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: aimon-memory-worker
+  datasource:
+    url: ${AIMON_MEMORY_DB_URL:jdbc:postgresql://localhost:5432/aimon_memory}
+    username: ${AIMON_MEMORY_DB_USER:aimon_memory}
+    password: ${AIMON_MEMORY_DB_PASSWORD:aimon_memory}
+    hikari:
+      # Sized against worker concurrency, not request rate. Each work unit holds a connection only
+      # around its queries, never across the model call, so this can stay small.
+      maximum-pool-size: ${AIMON_MEMORY_DB_POOL:10}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    placeholders:
+      # Must match aimon.memory.embed.dimensions below: it is the width the vector columns are created with.
+      embedding_dimensions: ${AIMON_MEMORY_EMBED_DIMENSIONS:1536}
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  # The worker serves no API, so actuator is its entire HTTP surface and one port is enough. There is
+  # nothing here to separate metrics from — unlike the API, where a second port keeps them off the
+  # connector that answers /v1.
+  port: ${AIMON_MEMORY_MANAGEMENT_PORT:9091}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+aimon:
+  memory:
+    llm:
+      provider: ${AIMON_MEMORY_LLM_PROVIDER:none}
+      fallback-provider: ${AIMON_MEMORY_LLM_FALLBACK:none}
+      open-ai-api-key: ${OPENAI_API_KEY:}
+      open-ai-model: ${AIMON_MEMORY_OPENAI_MODEL:gpt-4.1-mini}
+      anthropic-api-key: ${ANTHROPIC_API_KEY:}
+      anthropic-model: ${AIMON_MEMORY_ANTHROPIC_MODEL:claude-opus-5}
+    embed:
+      provider: ${AIMON_MEMORY_EMBED_PROVIDER:hashing}
+      api-key: ${OPENAI_API_KEY:}
+      dimensions: ${AIMON_MEMORY_EMBED_DIMENSIONS:1536}
+    text:
+      korean-user-dictionary: ${AIMON_MEMORY_NORI_USER_DICT:}
+    worker:
+      concurrency: ${AIMON_MEMORY_WORKER_CONCURRENCY:4}
+      units-per-poll: 8
+      items-per-unit: 100
+      claim-ttl: 5m
+      min-poll-interval: 1s
+      max-poll-interval: 30s
+      max-attempts: 5
+      reconciler-interval: 5m
+      processed-retention: 7d
+
+logging:
+  level:
+    at.aimon.memory: ${AIMON_MEMORY_LOG_LEVEL:INFO}

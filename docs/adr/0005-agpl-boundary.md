@@ -9,12 +9,12 @@ copyrightable; code and prompt strings are, and copying either would make this p
 
 ## Decision
 
-`dyad-design.md` is the only specification. No source from either original was consulted while
+`aimon-memory-design.md` is the only specification. No source from either original was consulted while
 building this, and neither repository is present in this working tree.
 
 Everything expressive is written from scratch:
 
-- **Prompts.** `dev.dyad.memory.prompt.Prompts` — extraction, summarisation, dialectic, the three
+- **Prompts.** `at.aimon.memory.engine.prompt.Prompts` — extraction, summarisation, dialectic, the three
   dream specialists, the peer card. Written against the behaviours the specification describes, from
   the failure modes each one has to avoid.
 - **Schemas.** The structured-output schemas are hand-written, with descriptions aimed at a model

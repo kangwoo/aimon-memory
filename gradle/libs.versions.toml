@@ -15,6 +15,14 @@ archunit        = "1.5.0"
 jjwt            = "0.12.7"
 assertj         = "3.27.6"
 spotless        = "6.25.0"
+checkstyle      = "10.12.5"
+mavenPublish    = "0.30.0"
+
+# aimon-core is the consumer, and its floor is Java 17. Only aimon-memory-client is compiled to it —
+# every other module here is a service and stays on the toolchain above. Kept as a version rather than a
+# literal so the two numbers that have to move together sit next to each other.
+javaCompat      = "17"
+aimonCore       = "0.2.3"
 
 [libraries]
 jooq              = { module = "org.jooq:jooq",                            version.ref = "jooq" }
@@ -30,9 +38,11 @@ tc-bom            = { module = "org.testcontainers:testcontainers-bom",    versi
 tc-postgres       = { module = "org.testcontainers:postgresql",            version.ref = "testcontainers" }
 tc-junit          = { module = "org.testcontainers:junit-jupiter",         version.ref = "testcontainers" }
 archunit          = { module = "com.tngtech.archunit:archunit-junit5",     version.ref = "archunit" }
+aimon-core        = { module = "at.aimon.core:aimon-core",                 version.ref = "aimonCore" }
 assertj           = { module = "org.assertj:assertj-core",                 version.ref = "assertj" }
 
 [plugins]
 springBoot    = { id = "org.springframework.boot",                  version.ref = "springBoot" }
 springDepMgmt = { id = "io.spring.dependency-management",           version.ref = "springDepMgmt" }
 spotless      = { id = "com.diffplug.spotless",                     version.ref = "spotless" }
+mavenPublish  = { id = "com.vanniktech.maven.publish",              version.ref = "mavenPublish" }

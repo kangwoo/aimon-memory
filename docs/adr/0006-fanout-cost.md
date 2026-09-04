@@ -4,7 +4,7 @@
 
 ## Context
 
-`dyad-design.md` §4.4 specifies fan-out as **one LLM call, N collections**: extract the facts from a
+`aimon-memory-design.md` §4.4 specifies fan-out as **one LLM call, N collections**: extract the facts from a
 batch once, then write the same conclusions into every observing pair. The saving is the point — a
 five-person session would otherwise cost five times as much for what the design assumed was the same
 answer.

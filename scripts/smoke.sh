@@ -6,18 +6,18 @@
 # layer rescues a hit the semantic signal misses.
 #
 #   docker compose up -d
-#   DYAD_JWT_SECRET=... java -jar dyad-api/build/libs/dyad-api-*.jar &
-#   DYAD_JWT_SECRET=... java -jar dyad-worker/build/libs/dyad-worker-*.jar &
+#   AIMON_MEMORY_JWT_SECRET=... java -jar aimon-memory-api/build/libs/aimon-memory-api-*.jar &
+#   AIMON_MEMORY_JWT_SECRET=... java -jar aimon-memory-worker/build/libs/aimon-memory-worker-*.jar &
 #   ./scripts/smoke.sh
 set -euo pipefail
 
-BASE="${DYAD_BASE_URL:-http://localhost:8080}"
+BASE="${AIMON_MEMORY_BASE_URL:-http://localhost:8080}"
 # Actuator lives on its own connector; the auth interceptor only covers /v1/**.
-MGMT="${DYAD_MANAGEMENT_URL:-http://localhost:9090}"
+MGMT="${AIMON_MEMORY_MANAGEMENT_URL:-http://localhost:9090}"
 # The worker serves nothing but actuator, so it gets a port of its own rather than a second one.
-WORKER="${DYAD_WORKER_URL:-http://localhost:9091}"
-SECRET="${DYAD_JWT_SECRET:?set DYAD_JWT_SECRET to the same value the API is running with}"
-WS="${DYAD_SMOKE_WORKSPACE:-smoke}"
+WORKER="${AIMON_MEMORY_WORKER_URL:-http://localhost:9091}"
+SECRET="${AIMON_MEMORY_JWT_SECRET:?set AIMON_MEMORY_JWT_SECRET to the same value the API is running with}"
+WS="${AIMON_MEMORY_SMOKE_WORKSPACE:-smoke}"
 
 # The first token has to be minted out of band: /v1/tokens narrows an existing token and cannot
 # create one from nothing. Everything after this could be delegated from it.
@@ -27,7 +27,7 @@ secret = sys.argv[1].encode()
 b64 = lambda d: base64.urlsafe_b64encode(d).rstrip(b"=").decode()
 now = int(time.time())
 header = b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-payload = b64(json.dumps({"iss": "dyad", "iat": now, "exp": now + 600, "scope": "admin"},
+payload = b64(json.dumps({"iss": "aimon.memory", "iat": now, "exp": now + 600, "scope": "admin"},
                          separators=(",", ":")).encode())
 sig = b64(hmac.new(secret, f"{header}.{payload}".encode(), hashlib.sha256).digest())
 print(f"{header}.{payload}.{sig}", end="")
@@ -95,6 +95,6 @@ for e in json.load(sys.stdin):
 '
 
 say "queue metrics"
-curl -fsS "$WORKER/actuator/prometheus" 2>/dev/null | grep -E '^dyad_queue' || echo "  (worker not running)"
+curl -fsS "$WORKER/actuator/prometheus" 2>/dev/null | grep -E '^aimon_memory_queue' || echo "  (worker not running)"
 
 printf '\nsmoke test passed\n' 

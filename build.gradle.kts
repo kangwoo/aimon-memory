@@ -1,76 +1,74 @@
-import com.diffplug.gradle.spotless.SpotlessExtension
-import io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension
-import org.gradle.api.tasks.testing.logging.TestExceptionFormat
-
+// Module-wide quality, packaging and publishing configuration lives in the pre-compiled script plugins
+// under `buildSrc/src/main/kotlin/`:
+//   - aimon.java-conventions  (Java 21, Spring/Testcontainers BOMs, Spotless, Checkstyle, JaCoCo, tiers)
+//   - aimon.publishable       (Maven Central publishing via vanniktech)
+//
+// Each module opts in with `plugins { id("aimon.java-conventions") }` and, where it is published,
+// `id("aimon.publishable")`.
 plugins {
+    java
+    // Declared here without applying so `aimon-memory-api` and `-worker` can ask for it by id alone.
+    //
+    // `io.spring.dependency-management` is deliberately NOT declared alongside it: buildSrc already puts
+    // that plugin on the build's classpath so `aimon.java-conventions` can apply it, and resolving the
+    // same id again from the catalog fails with "already on the classpath with an unknown version".
     alias(libs.plugins.springBoot) apply false
-    alias(libs.plugins.springDepMgmt) apply false
-    alias(libs.plugins.spotless) apply false
 }
 
 allprojects {
-    group = "dev.dyad"
-    version = "0.1.0-SNAPSHOT"
+    group = findProperty("GROUP") as String
+    version = findProperty("VERSION_NAME") as String
+
+    repositories {
+        mavenCentral()
+    }
 }
 
-// Resolved once at the root; subprojects never touch the catalog accessor directly.
-val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
-fun ver(alias: String): String = catalog.findVersion(alias).orElseThrow().requiredVersion
+// Aggregator tasks. Subprojects use the convention plugin, so `spotlessApply`, `spotlessCheck` and
+// `checkstyleMain` are guaranteed to exist — for every subproject that has Java sources, that is.
+// `aimon-memory-bom` is a `java-platform`, and Gradle refuses `java-platform` alongside the
+// `java-library` the conventions apply, so it is the one project here with nothing to aggregate. It is
+// excluded by asking what it is, not by name.
+//
+// Everything else is addressed with `tasks.named`, which fails loudly when the task is missing. That is
+// the point: a new module that forgets `aimon.java-conventions` breaks the root build instead of quietly
+// slipping past the gates. `matching { }` or a `withType` sweep would have made that omission invisible.
+fun codeSubprojects(): List<Project> = subprojects.filterNot { it.plugins.hasPlugin("java-platform") }
 
-subprojects {
-    apply(plugin = "java-library")
-    apply(plugin = "io.spring.dependency-management")
-    apply(plugin = "com.diffplug.spotless")
+tasks.register("format") {
+    description = "Format all Java code using Spotless"
+    group = "formatting"
+    dependsOn(codeSubprojects().map { it.tasks.named("spotlessApply") })
+}
 
-    repositories { mavenCentral() }
+tasks.register("checkFormat") {
+    description = "Check Java code formatting using Spotless"
+    group = "verification"
+    dependsOn(codeSubprojects().map { it.tasks.named("spotlessCheck") })
+}
 
-    extensions.configure<JavaPluginExtension> {
-        toolchain { languageVersion.set(JavaLanguageVersion.of(ver("java").toInt())) }
-    }
+tasks.register("checkStyle") {
+    description = "Run Checkstyle on all modules"
+    group = "verification"
+    dependsOn(codeSubprojects().map { it.tasks.named("checkstyleMain") })
+}
 
-    extensions.configure<DependencyManagementExtension> {
-        imports {
-            mavenBom("org.springframework.boot:spring-boot-dependencies:${ver("springBoot")}")
-            mavenBom("org.testcontainers:testcontainers-bom:${ver("testcontainers")}")
-        }
-    }
+// `test` here is each module's own test task, which excludes the `@Tag("docker")` tests (see
+// aimon.java-conventions). Those stay opt-in via `integrationTest`, and they are where most of this
+// system's behaviour is actually proven — a schema, a partial unique index and a pgvector distance are
+// not things a mock stands in for. `checkAll` is the fast gate; the release gate runs both tiers.
+tasks.register("checkAll") {
+    description = "Run the fast gates (Spotless + Checkstyle + unit tests)"
+    group = "verification"
+    dependsOn("checkFormat", "checkStyle")
+    dependsOn(codeSubprojects().map { it.tasks.named("test") })
+    // The BOM has no tests, but it has a claim that can be wrong — that it manages exactly the modules
+    // this build publishes — so the gate picks up its `verifyBom` in place of the test task it lacks.
+    dependsOn(":aimon-memory-bom:verifyBom")
+}
 
-    dependencies {
-        "implementation"("org.slf4j:slf4j-api")
-        "testImplementation"("org.springframework.boot:spring-boot-starter-test")
-        "testImplementation"("org.assertj:assertj-core")
-        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
-    }
-
-    tasks.withType<JavaCompile>().configureEach {
-        options.encoding = "UTF-8"
-        options.compilerArgs.addAll(listOf("-parameters", "-Xlint:deprecation", "-Xlint:unchecked"))
-    }
-
-    tasks.withType<Test>().configureEach {
-        useJUnitPlatform()
-        // Above the JAVA_TOOL_OPTIONS floor some developer machines set; the default 512m loses to it.
-        maxHeapSize = "2g"
-        systemProperty("file.encoding", "UTF-8")
-        // One fixture corpus for every module, wherever Gradle happens to set the working directory.
-        systemProperty("dyad.fixtures.dir", rootProject.layout.projectDirectory.dir("test-fixtures").asFile.absolutePath)
-        systemProperty("dyad.golden.update", System.getProperty("dyad.golden.update") ?: "false")
-        systemProperty("dyad.eval.update", System.getProperty("dyad.eval.update") ?: "false")
-        systemProperty("dyad.load", System.getProperty("dyad.load") ?: "false")
-        // CI never talks to a live model. Overriding this is a local, manual act.
-        environment("DYAD_LLM_MODE", System.getenv("DYAD_LLM_MODE") ?: "replay")
-        testLogging {
-            events("failed")
-            exceptionFormat = TestExceptionFormat.FULL
-        }
-    }
-
-    extensions.configure<SpotlessExtension> {
-        java {
-            target("src/**/*.java")
-            removeUnusedImports()
-            trimTrailingWhitespace()
-            endWithNewline()
-        }
-    }
+tasks.register("integrationTest") {
+    description = "Run the Testcontainers tier in every module"
+    group = "verification"
+    dependsOn(codeSubprojects().map { it.tasks.named("integrationTest") })
 }

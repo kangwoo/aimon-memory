@@ -3,20 +3,20 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: dyad-postgres
+    container_name: aimon-memory-postgres
     environment:
-      POSTGRES_DB: dyad
-      POSTGRES_USER: dyad
-      POSTGRES_PASSWORD: dyad
+      POSTGRES_DB: aimon_memory
+      POSTGRES_USER: aimon_memory
+      POSTGRES_PASSWORD: aimon_memory
     ports:
       - "5432:5432"
     volumes:
-      - dyad-postgres:/var/lib/postgresql/data
+      - aimon-memory-postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dyad -d dyad"]
+      test: ["CMD-SHELL", "pg_isready -U aimon_memory -d aimon_memory"]
       interval: 5s
       timeout: 3s
       retries: 10
 
 volumes:
-  dyad-postgres:
+  aimon-memory-postgres:

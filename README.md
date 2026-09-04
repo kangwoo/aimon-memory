@@ -1,10 +1,10 @@
-# Dyad
+# aimon-memory
 
 A memory system for conversational agents. Every fact it stores belongs to a directed
 **(observer, observed) pair** — `alice`'s memory of herself and `bot`'s memory of `alice` are
 separate stores that never leak into one another.
 
-Built from `dyad-design.md` and `dyad-build-plan.md`.
+Built from `aimon-memory-design.md` and `aimon-memory-build-plan.md`.
 
 ---
 
@@ -48,12 +48,12 @@ narrative — and it has Tier 1 as one of its tools, which is what keeps its ite
 docker compose up -d               # postgres 16 + pgvector
 ./gradlew check                    # 360 tests, Testcontainers starts its own database
 
-export DYAD_JWT_SECRET=$(openssl rand -base64 48)
-./gradlew :dyad-api:bootRun        # HTTP, port 8080
-./gradlew :dyad-worker:bootRun
+export AIMON_MEMORY_JWT_SECRET=$(openssl rand -base64 48)
+./gradlew :aimon-memory-api:bootRun        # HTTP, port 8080
+./gradlew :aimon-memory-worker:bootRun
 ```
 
-`DYAD_JWT_SECRET` is required and has no default. A development default in `application.yml` is a
+`AIMON_MEMORY_JWT_SECRET` is required and has no default. A development default in `application.yml` is a
 signing key published in the repository: a deployment that forgets the variable would start cleanly,
 sign production tokens with it, and hand an admin token to anyone who has read the source. Startup
 fails instead.
@@ -66,9 +66,9 @@ With real providers:
 
 ```sh
 export OPENAI_API_KEY=...
-export DYAD_LLM_PROVIDER=openai
-export DYAD_EMBED_PROVIDER=openai
-export DYAD_LLM_FALLBACK=anthropic ANTHROPIC_API_KEY=...   # optional
+export AIMON_MEMORY_LLM_PROVIDER=openai
+export AIMON_MEMORY_EMBED_PROVIDER=openai
+export AIMON_MEMORY_LLM_FALLBACK=anthropic ANTHROPIC_API_KEY=...   # optional
 ```
 
 ### Smoke test
@@ -79,7 +79,7 @@ It proves the things unit tests cannot — that both jars boot, that Flyway appl
 an empty database, and that Nori analysis reaches the query path.
 
 ```sh
-DYAD_JWT_SECRET=... ./scripts/smoke.sh
+AIMON_MEMORY_JWT_SECRET=... ./scripts/smoke.sh
 ```
 
 ### A first request
@@ -110,19 +110,19 @@ the caller does not already speak for.
 Dependencies point downwards only, enforced by `ModuleDependencyTest`.
 
 ```
-dyad-core      no dependencies. Domain types, the six SPIs, key encoding.
-dyad-testkit   core. Golden fixtures, stubs, the Testcontainers base.
+aimon-memory-core      no dependencies. Domain types, the six SPIs, key encoding.
+aimon-memory-testkit   core. Golden fixtures, stubs, the Testcontainers base.
 
-dyad-text      core. Nori / Standard / bigram analyzers, normalisation, BM25, jtokkit.
-dyad-embed     core, text. Batching, truncation, retry, order preservation.
-dyad-llm       core. Provider backends, structured output, tool loop, record/replay.
-dyad-store     core, text. Flyway, repositories, pgvector, the filter compiler.
+aimon-memory-text      core. Nori / Standard / bigram analyzers, normalisation, BM25, jtokkit.
+aimon-memory-embed     core, text. Batching, truncation, retry, order preservation.
+aimon-memory-llm       core. Provider backends, structured output, tool loop, record/replay.
+aimon-memory-store     core, text. Flyway, repositories, pgvector, the filter compiler.
 
-dyad-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
-dyad-memory    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
+aimon-memory-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
+aimon-memory-engine    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
 
-dyad-worker    memory, store.            [runnable]
-dyad-api       recall, memory, store.    [runnable]
+aimon-memory-worker    memory, store.            [runnable]
+aimon-memory-api       recall, memory, store.    [runnable]
 ```
 
 Two processes, one codebase. They scale differently and fail differently: the API is latency-bound
@@ -250,8 +250,8 @@ Stated plainly rather than left to be discovered.
 
 ## Documents
 
-- `docs/spec/dyad-design.md` — the specification
-- `docs/spec/dyad-build-plan.md` — the plan this was built from
+- `docs/spec/aimon-memory-design.md` — the specification
+- `docs/spec/aimon-memory-build-plan.md` — the plan this was built from
 - `docs/adr/` — where this deviates from either, and why, with the evidence
 - `docs/runbook.md` — deploying, tuning, and what to check when something is wrong
 - `docs/dashboards/` — Grafana
