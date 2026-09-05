@@ -1,0 +1,142 @@
+site_name: AIMON Memory
+site_description: 대화형 에이전트를 위한, 방향 있는 (observer, observed) 쌍에 귀속되는 메모리 시스템
+site_url: https://kangwoo.github.io/aimon-memory/
+repo_url: https://github.com/kangwoo/aimon-memory
+repo_name: kangwoo/aimon-memory
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 AIMON contributors &middot; Apache License 2.0
+
+docs_dir: docs
+
+# No `nav:`. Navigation is generated from the directory tree, so the curated index
+# lives in exactly one place -- docs/README.md -- instead of being maintained twice
+# and drifting. Which document owns what is ADR 0008's table, and docs/README.md is
+# that table on this surface.
+
+# No `exclude_docs` either. Everything under docs/ belongs on the site, including
+# the frozen specification: it is normative, ADR 0005 rests on it, and the rest of
+# the documentation links into it constantly. scripts/mkdocs_github_links.py reads
+# this key when it exists, so adding one later is a one-line change here.
+
+theme:
+  name: material
+  language: ko
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    # navigation.instant is deliberately absent: mkdocs-static-i18n warns that it
+    # breaks the language switcher's contextual link, which would drop a reader
+    # on /en/ back to the site root instead of the page they were reading.
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 다크 모드로 전환
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 라이트 모드로 전환
+
+hooks:
+  - scripts/mkdocs_github_links.py
+
+plugins:
+  # `separator` is tuned, not decorative -- the same reasoning as aimon-core's.
+  #
+  # Material's Korean locale sets the lunr pipeline to " ", so the built index runs
+  # with no stemmer, no stopword filter and -- the part that matters -- no *trimmer*.
+  # Punctuation stays glued to tokens while Material appends `*` to every query term,
+  # so a word is only findable when it *starts* a token. These documents are full of
+  # `강화(reinforcement)` and `프로버넌스(provenance)`, which under the stock separator
+  # are unfindable by their English half. Splitting on brackets, quotes and commas
+  # fixes that.
+  #
+  # `.` is deliberately NOT a separator, so dotted identifiers survive whole:
+  # `recall.half_life_days`, `at.aimon.memory`, `aimon.memory.worker.concurrency`.
+  - search:
+      lang: [ko, en]
+      separator: '[\s\-,:!=\[\]()"/]+'
+  - i18n:
+      docs_structure: suffix
+      # Korean sources carry no suffix, so Korean must be the default locale -- the
+      # default locale is what builds at the site root. This matches the repository's
+      # own convention exactly: `guide.md` is canonical, `guide.en.md` is its pair.
+      #
+      # The two files under spec/ have no English pair on purpose (ADR 0005 -- there
+      # is one specification, and a translation would make that two). They fall back
+      # to the Korean source on /en/, which is the honest outcome: the page exists,
+      # and it is the document the implementation was written from.
+      languages:
+        - locale: ko
+          default: true
+          name: 한국어
+          build: true
+        - locale: en
+          name: English
+          build: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # GitHub deletes '.' without leaving a hyphen; matching that keeps an anchor
+      # written for GitHub working on the site, and vice versa. These documents lean
+      # on that heavily -- every cross-reference into concepts.md and architecture.md
+      # is a Korean anchor written for GitHub.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  # `custom_fences` is what turns a ```mermaid block into a rendered diagram --
+  # Material ships the mermaid.js integration but only activates it when the fence is
+  # registered here. Registering it keeps GitHub and the site in agreement: GitHub
+  # renders ```mermaid natively, so one source renders on both surfaces. That is why
+  # the eight diagrams in this repository carry English labels -- one block serves the
+  # Korean page and its .en.md pair.
+  #
+  # Material lazy-loads mermaid from a CDN at view time rather than bundling it, so
+  # diagrams need the reader's browser to reach it. GitHub renders the same fences
+  # server-side, which is the fallback.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kangwoo/aimon-memory

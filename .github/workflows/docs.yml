@@ -1,0 +1,88 @@
+name: docs
+
+# The site is built on every push and PR touching documentation, but only
+# *deployed* from main. A PR therefore gets the same --strict build the deploy
+# gets, and a broken build is caught before it can reach the published site.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'docs-requirements.txt'
+      - 'scripts/mkdocs_github_links.py'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'docs-requirements.txt'
+      - 'scripts/mkdocs_github_links.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Read-only by default, declared rather than inherited — the same reasoning ci.yml
+# gives. The deploy job asks for more, and only the deploy job gets it.
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Action majors follow this repository's own ci.yml and release.yml (@v4), not
+      # aimon-core's docs.yml, which this workflow is otherwise a copy of. The two Pages
+      # actions below are the exception only because nothing else here uses them, so
+      # there is no internal version to be consistent with.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs-requirements.txt
+
+      - name: Install documentation toolchain
+        run: pip install -r docs-requirements.txt
+
+      # --strict turns MkDocs' link warnings into failures. It is only safe to ask
+      # for that because scripts/mkdocs_github_links.py rewrites the links that
+      # intentionally point outside docs/ — at gradle/libs.versions.toml today — into
+      # GitHub URLs at render time.
+      #
+      # This is the gate that keeps the cross-references honest. These documents lean
+      # hard on anchors into one another (architecture §8 alone links nine sections of
+      # concepts.md), and a renamed heading breaks them silently on GitHub. Here it
+      # fails the build.
+      - name: Build site
+        run: mkdocs build --strict
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -15,3 +15,10 @@ out/
 # Heap dumps. This build sets an explicit -Xmx on the compiler and test workers, so an OOM here
 # lands as a multi-gigabyte file in the project root rather than somewhere temporary.
 *.hprof
+# The MkDocs build output. `mkdocs build` writes it; CI uploads it to Pages and it is
+# never committed. Anchored with a leading slash so it cannot swallow a `site/`
+# directory that means something else deeper in the tree.
+/site/
+# MkDocs imports scripts/mkdocs_github_links.py as a module, so Python leaves a cache
+# directory next to it on every site build.
+__pycache__/
