@@ -41,7 +41,7 @@ jobs:
       # there is no internal version to be consistent with.
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
