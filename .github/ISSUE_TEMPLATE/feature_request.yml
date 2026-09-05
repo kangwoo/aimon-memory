@@ -1,0 +1,59 @@
+name: 기능 제안
+description: 지금 할 수 없는 무언가를 제안합니다
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        먼저 `README.md` 의 "아직 안 된 것" 절과 `docs/adr/` 를 봐 주세요.
+        이미 의도적으로 하지 않기로 한 것이라면, 그 결정을 뒤집을 근거를 적는 편이 빠릅니다.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 어떤 문제를 겪고 있나요
+      description: 해결책이 아니라 상황부터 적어 주세요. 지금 무엇을 하려다 막혔는지.
+      placeholder: |
+        여러 워크스페이스에 걸쳐 한 peer 의 결론을 한 번에 읽어야 하는데, recall 은 워크스페이스 하나만 봅니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 제안
+      description: 어떻게 동작하면 좋겠는지. API 모양이 있다면 그대로 적어 주세요.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 어느 부분인가요
+      options:
+        - "recall / 랭킹 (Tier 1)"
+        - "dialectic / chat (Tier 2)"
+        - "도출·요약·dream (engine, worker)"
+        - "저장소·스키마 (store)"
+        - "HTTP API·인증"
+        - "aimon-core 어댑터 (client)"
+        - "텍스트 분석·임베딩"
+        - "빌드·CI·배포"
+        - "문서"
+        - "기타 / 모르겠음"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 대안
+      description: 지금 어떻게 우회하고 있는지, 또는 왜 그 우회가 부족한지.
+
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: 확인
+      options:
+        - label: "이 제안이 `(observer, observed)` 쌍 격리를 깨지 않는다는 것을 확인했습니다"
+        - label: "aimon-core 와의 경계를 건드린다면 [ADR 0007](https://github.com/kangwoo/aimon-memory/blob/main/docs/adr/0007-aimon-core-boundary.md) 을 읽었습니다"

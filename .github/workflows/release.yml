@@ -1,0 +1,124 @@
+name: release
+
+# A tag is the trigger, and the tag is the version: `v0.1.0` publishes 0.1.0. Nothing here reads
+# gradle.properties' VERSION_NAME — that stays at a snapshot on main, and a release that had to
+# remember to edit it would eventually publish 0.1.0-SNAPSHOT to Central, which cannot be undone.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  # The same as ci.yml. A release must not be the one build that talks to a live model.
+  AIMON_MEMORY_LLM_MODE: replay
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # ORG_GRADLE_PROJECT_VERSION_NAME rather than -PVERSION_NAME on each line: Gradle reads that
+      # env var as a project property, so every step below sees the same version without repeating it
+      # and without one of them being forgotten.
+      - name: Read the version out of the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *-SNAPSHOT)
+              echo "refusing to release $version: a snapshot is a local build, not a release" >&2
+              exit 1
+              ;;
+            "")
+              echo "refusing to release: tag '$GITHUB_REF_NAME' has no version after the leading v" >&2
+              exit 1
+              ;;
+          esac
+          echo "ORG_GRADLE_PROJECT_VERSION_NAME=$version" >> "$GITHUB_ENV"
+          echo "releasing $version"
+
+      # Both gates, before anything leaves the runner. Central has no delete: a bad artifact is
+      # permanent, so the fast gate and the Testcontainers tier both run here even though the same
+      # commit passed them on the pull request.
+      - name: checkAll
+        run: ./gradlew checkAll --no-daemon
+
+      - name: integrationTest
+        run: ./gradlew integrationTest --no-daemon
+
+      # The publish-time gate, run as a step of its own so the log names it. It also runs as a
+      # dependency of the publish task; this is where a reader sees it pass or fail. It refuses an
+      # aimon-core that resolved to a project rather than a released artifact, one that resolved to a
+      # snapshot, or a jar that does not contain PeerMemory — each of which would ship a POM pointing
+      # at an aimon-core the consumer cannot resolve.
+      - name: verifyCoreIsReleased
+        run: ./gradlew :aimon-memory-client:verifyCoreIsReleased --no-daemon
+
+      # Central Portal, with the artifacts signed by an in-memory GPG key. Both come from
+      # aimon.publishable: `publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)` and
+      # `signAllPublications()`.
+      #
+      # The five secrets below have to exist in the repository's settings before this workflow can
+      # run. Their names on the left are what the vanniktech plugin reads (as Gradle properties, via
+      # the ORG_GRADLE_PROJECT_ prefix); the names on the right are ours and can be anything.
+      #
+      #   MAVEN_CENTRAL_USERNAME  Central Portal user token, name half
+      #   MAVEN_CENTRAL_PASSWORD  Central Portal user token, secret half
+      #   SIGNING_KEY             the ASCII-armoured private key, whole
+      #                           (gpg --armor --export-secret-keys <key-id>)
+      #   SIGNING_PASSWORD        that key's passphrase
+      #   SIGNING_KEY_ID          optional; only needed when the keyring holds more than one key
+      #
+      # `publishToMavenCentral` uploads the deployment and stops: it stages the bundle in the Portal
+      # and leaves releasing it to a person. That is deliberate. Central has no delete — a released
+      # coordinate is permanent, wrong version number and all — so the last step before something
+      # becomes irrevocable is a human looking at what is actually in the bundle.
+      #
+      # The fully automatic form is one task name: `publishAndReleaseToMavenCentral` uploads and
+      # releases in the same run. Switch to it once a few releases have gone out by hand and the
+      # bundle holds no more surprises. Nothing else in this file changes, though the summary step
+      # below then describes a step that no longer needs doing, so it goes at the same time.
+      - name: publish (staged, not released)
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+        run: ./gradlew publishToMavenCentral --no-daemon --no-configuration-cache
+
+      # The run is green and nothing has been published yet, which is a state a green tick reads as
+      # the opposite of. Say so where the reader of that tick is looking.
+      - name: say what is left to do
+        run: |
+          {
+            echo "## Staged, not released"
+            echo
+            echo "\`$ORG_GRADLE_PROJECT_VERSION_NAME\` is uploaded to the Central Portal as a"
+            echo "deployment and is **not** on Maven Central yet. Nothing here releases it."
+            echo
+            echo "1. Open <https://central.sonatype.com/publishing/deployments>"
+            echo "2. Find the deployment for \`at.aimon.memory\` at that version"
+            echo "3. Read what is in the bundle — the nine modules, their POMs, the sources and"
+            echo "   javadoc jars, and a \`.asc\` beside each file"
+            echo "4. **Publish** to release it, or **Drop** to throw it away"
+            echo
+            echo "A dropped deployment costs a new tag. A released one cannot be taken back:"
+            echo "Central has no delete."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results
+          path: "**/build/reports/tests"

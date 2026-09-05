@@ -1,0 +1,37 @@
+aimon-memory
+Copyright 2026 kangwoo
+
+This product includes software developed by kangwoo, licensed under the Apache
+License, Version 2.0. The full text is in the LICENSE file at the root of this
+repository.
+
+================================================================================
+Attribution
+
+The starting point for the recall ranking formula -- its semantic / keyword /
+entity split -- is mem0 (https://github.com/mem0ai/mem0), which is licensed
+under the Apache License, Version 2.0 and permits it. The three further signals
+(reinforcement, recency, level), the constant denominator and the weights
+themselves are this project's own.
+
+The derivation is cited where it is implemented:
+
+    modules/aimon-memory-core/src/main/java/at/aimon/memory/core/model/FusionWeights.java
+    modules/aimon-memory-recall/src/main/java/at/aimon/memory/recall/FusionRanker.java
+
+and the reasoning that draws the line is recorded in
+docs/adr/0005-agpl-boundary.md.
+
+No source code, prompt text, structured-output schema or SQL from any other
+project is included here. Prompts, schemas and SQL are written from the
+specification in docs/spec/, which is what ADR 0005 exists to keep true.
+
+================================================================================
+Third-party dependencies
+
+Third-party libraries are resolved at build time and none of them are
+redistributed in this repository. Their coordinates and versions are declared in
+gradle/libs.versions.toml and in the Spring Boot and Testcontainers platforms
+imported by buildSrc/src/main/kotlin/aimon.java-conventions.gradle.kts. Each
+carries its own license and, where it has one, its own NOTICE file; both apply to
+any distribution that bundles them.

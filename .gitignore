@@ -7,3 +7,11 @@ build/
 .vscode/
 .DS_Store
 .env
+# IntelliJ compiles here when it is driving the build rather than Gradle, and the Kotlin plugin
+# buildSrc uses keeps a session directory next to it. Neither is under build/, so neither is
+# covered by the line above.
+out/
+.kotlin/
+# Heap dumps. This build sets an explicit -Xmx on the compiler and test workers, so an OOM here
+# lands as a multi-gigabyte file in the project root rather than somewhere temporary.
+*.hprof
