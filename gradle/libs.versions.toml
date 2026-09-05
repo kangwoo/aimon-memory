@@ -13,7 +13,7 @@ lucene          = "10.5.1"
 jtokkit         = "1.1.0"
 testcontainers  = "1.21.4"
 archunit        = "1.5.0"
-jjwt            = "0.12.7"
+jjwt            = "0.13.0"
 # The last 2.x line, and the one that targets Spring Boot 3.5. springdoc 3.x is built against Boot 4 —
 # it depends on `spring-boot-webmvc` and `spring-boot-health`, modules that do not exist here — so this
 # version moves when `springBoot` does and not before.
