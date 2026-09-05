@@ -6,6 +6,34 @@
 
 아티팩트 한 벌에서 프로세스 둘.
 
+```mermaid
+flowchart TB
+    clients["aimon-core applications · HTTP clients"]
+
+    subgraph procs["one artifact set, two processes"]
+        api["API — Spring MVC on virtual threads<br/>8080 service · 9090 management<br/>ingest · context · recall · chat"]
+        worker["Worker — no API surface<br/>9091 management only<br/>derive · summarise · dream · reconcile"]
+    end
+
+    db[("Postgres 16 + pgvector<br/>conclusions, entities, messages, events —<br/>and the queue, so there is no broker<br/>Flyway runs at startup on both processes")]
+    prov["chat and embedding providers"]
+    prom["Prometheus"]
+
+    clients -->|"8080 — publish this one"| api
+    api -->|"store the message, enqueue the work unit"| db
+    worker -->|"claim a work unit, write conclusions"| db
+    api -->|"embed the query, run the chat tool loop"| prov
+    worker -->|"derive, summarise, dream"| prov
+    prom -.->|"scrapes 9090 — do not publish"| api
+    prom -.->|"scrapes 9091 — do not publish"| worker
+```
+
+현행 배치다. [`spec/aimon-memory-design.md`](spec/aimon-memory-design.md#2-아키텍처) §2 의 그림은
+2026-08-31 시점의 기록이라 Redis 를 선택지로 달고 있는데, [ADR 0001](adr/0001-stack.md) 이 그것을
+Postgres 하나로 잘라냈다. 큐는 브로커가 아니라 `queue` 테이블이고, 클레임은 락이 아니라
+`work_unit_claims` 에 넣는 insert 다 — 모델 호출을 가로질러 트랜잭션을 열어 두지 않는다. 세워야 할
+인프라가 데이터베이스 하나로 끝나는 것이 그 대가로 얻는 것이다.
+
 ```sh
 ./gradlew :aimon-memory-api:bootJar :aimon-memory-worker:bootJar
 java -jar modules/aimon-memory-api/build/libs/aimon-memory-api-*.jar

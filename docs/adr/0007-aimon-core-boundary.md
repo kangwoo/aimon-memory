@@ -23,6 +23,20 @@
 **`at.aimon.core.memory.PeerMemory` 가 유일한 이음매다. 그 위는 aimon-core 의 것이고, 그 뒤는 우리
 것이다.**
 
+```mermaid
+flowchart TB
+    agent["aimon-core<br/>agents, tools, prompt injection, redaction,<br/>and one node-local backend (memory.file)"]
+    seam["at.aimon.core.memory.PeerMemory<br/>SNAPSHOT · SEARCH · CHAT · OBSERVE · INGEST<br/>and three capability signals"]
+    client["aimon-memory-client<br/>RemotePeerMemory"]
+    svc["aimon-memory<br/>schema, derivation, ranking, forgetting,<br/>tenancy, authorisation"]
+
+    agent -->|"assembles one"| seam
+    seam -->|"implemented by"| client
+    client -->|"HTTP /v1"| svc
+
+    style seam stroke-width:3px
+```
+
 aimon-core 는 에이전트를 소유한다 — 실행, 도구, 프롬프트 주입, 마스킹, 그리고 서비스를 띄우고 싶지 않은
 배포를 위한 노드 로컬 메모리 백엔드 하나. 이 저장소는 지속되는 멀티테넌트 메모리를 소유한다 — 스키마,
 도출 파이프라인, 순위, 테넌시 모델. 둘은 인터페이스 다섯 개와 어댑터 하나에서 만나고, 다른 어디에서도

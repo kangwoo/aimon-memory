@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        먼저 `README.md` 의 "아직 안 된 것" 절과 `docs/adr/` 를 봐 주세요.
+        먼저 `docs/architecture.md` 의 "11. 리스크와 기술 부채" 절과 `docs/adr/` 를 봐 주세요.
         이미 의도적으로 하지 않기로 한 것이라면, 그 결정을 뒤집을 근거를 적는 편이 빠릅니다.
 
   - type: textarea

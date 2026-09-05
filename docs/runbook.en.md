@@ -6,6 +6,35 @@
 
 Two processes from one artifact set:
 
+```mermaid
+flowchart TB
+    clients["aimon-core applications · HTTP clients"]
+
+    subgraph procs["one artifact set, two processes"]
+        api["API — Spring MVC on virtual threads<br/>8080 service · 9090 management<br/>ingest · context · recall · chat"]
+        worker["Worker — no API surface<br/>9091 management only<br/>derive · summarise · dream · reconcile"]
+    end
+
+    db[("Postgres 16 + pgvector<br/>conclusions, entities, messages, events —<br/>and the queue, so there is no broker<br/>Flyway runs at startup on both processes")]
+    prov["chat and embedding providers"]
+    prom["Prometheus"]
+
+    clients -->|"8080 — publish this one"| api
+    api -->|"store the message, enqueue the work unit"| db
+    worker -->|"claim a work unit, write conclusions"| db
+    api -->|"embed the query, run the chat tool loop"| prov
+    worker -->|"derive, summarise, dream"| prov
+    prom -.->|"scrapes 9090 — do not publish"| api
+    prom -.->|"scrapes 9091 — do not publish"| worker
+```
+
+That is the current arrangement. The diagram in
+[`spec/aimon-memory-design.md`](spec/aimon-memory-design.md#2-아키텍처) §2 is the record as of
+2026-08-31 and still carries Redis as an option; [ADR 0001](adr/0001-stack.en.md) cut it down to one
+Postgres. The queue is the `queue` table rather than a broker, and a claim is an insert into
+`work_unit_claims` rather than a lock — no transaction stays open across a model call. What that
+buys is a deployment with one piece of infrastructure to stand up.
+
 ```sh
 ./gradlew :aimon-memory-api:bootJar :aimon-memory-worker:bootJar
 java -jar modules/aimon-memory-api/build/libs/aimon-memory-api-*.jar

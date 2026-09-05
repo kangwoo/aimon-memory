@@ -17,6 +17,9 @@ application swaps its memory backend for this one by changing which `PeerMemory`
 
 Built from `aimon-memory-design.md` and `aimon-memory-build-plan.md`.
 
+The architecture description is [`docs/architecture.en.md`](docs/architecture.en.md) — context
+diagram, modules, quality gates and risks, as arc42's twelve sections.
+
 ---
 
 ## What it does
@@ -25,10 +28,8 @@ Messages go in over HTTP and return immediately. A worker batches them, extracts
 deduplicates against what is already known, and files the result under the pair that was observing.
 
 Extraction runs once per observing pair, not once per batch — the prompt is written from the
-observer's side, so what `bob` may conclude about `alice` is a different question from what `alice`
-concludes about herself. Batching removes the per-message cost, not the per-observer one; a session
-of N mutually-observing peers costs N + N(N−1) calls per batch, and `observe_others` is the lever
-([ADR 0006](docs/adr/0006-fanout-cost.md)).
+observer's side, which is why the cost of opening a large room scales with the number of observers
+([ADR 0006](docs/adr/0006-fanout-cost.en.md)).
 
 Reading has three tiers:
 
@@ -36,17 +37,12 @@ Reading has three tiers:
 |---|---|--:|--:|:-:|
 | 0 | `context()` | 0 | ~50 ms | yes |
 | 1 | **`recall()`** | 0 | ~100 ms | yes |
-| 2 | `chat()` | 1–10 | seconds | no |
+| 2 | `chat()` | 1–16 | seconds | no |
 
 **Tier 1 is the reason this exists.** Most questions asked of a memory system are lookups, and they
-should be fast, cheap and the same answer every time. It ranks with six signals under fixed weights:
-
-```
-score = 0.50·sem + 0.22·kw + 0.13·ent + 0.08·reinf + 0.05·rec + 0.02·lvl
-```
-
-Every response carries the breakdown that produced it, and the golden fixtures assert all of it to
-six decimal places.
+should be fast, cheap and the same answer every time. It ranks with six signals under fixed weights,
+and every response carries the breakdown that produced it — the golden fixtures assert all of it to
+six decimal places ([`concepts.en.md` §9](docs/concepts.en.md#9-six-signals-and-the-fusion-formula)).
 
 Tier 2 is still there for the questions Tier 1 cannot answer — enumerations, contradictions, anything
 narrative — and it has Tier 1 as one of its tools, which is what keeps its iteration count down.
@@ -145,207 +141,6 @@ All thirty-three routes are in [`docs/openapi.json`](docs/openapi.json), with th
 response schemas and the token scope each one needs. To click through them, point any Swagger UI at
 that file. To fetch it from a running service, start with `AIMON_MEMORY_OPENAPI=true` and read
 `/v3/api-docs` — off by default, because the auth interceptor covers `/v1/**` and nothing else.
-
----
-
-## Modules
-
-Dependencies point downwards only, enforced by `ModuleDependencyTest`.
-
-```
-aimon-memory-core      no dependencies. Domain types, the six SPIs, key encoding.
-aimon-memory-testkit   core. Golden fixtures, stubs, the Testcontainers base.
-
-aimon-memory-text      core. Nori / Standard / bigram analyzers, normalisation, BM25, jtokkit.
-aimon-memory-embed     core, text. Batching, truncation, retry, order preservation.
-aimon-memory-llm       core. Provider backends, structured output, tool loop, record/replay.
-aimon-memory-store     core, text. Flyway, repositories, pgvector, the filter compiler.
-
-aimon-memory-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
-aimon-memory-engine    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
-
-aimon-memory-worker    engine, store.            [runnable]
-aimon-memory-api       recall, engine, store.    [runnable]
-
-aimon-memory-client    aimon-core only.          [the adapter, Java 17]
-aimon-memory-bom       nothing. A java-platform pinning the published modules.
-```
-
-Two processes, one codebase. They scale differently and fail differently: the API is latency-bound
-and can be restarted freely; the worker holds queue claims that a restart has to release.
-
-`aimon-memory-engine` is the tiers themselves — deriver, dialectic, dreamer, fan-out, ingestion. It
-is named `engine` rather than `memory` so neither the module nor its package repeats the product's
-name.
-
----
-
-## Using it from aimon-core
-
-`aimon-memory-client` is the seam. aimon-core replaces a memory backend at
-`at.aimon.core.memory.PeerMemory` — five tiers, at service altitude, with a comment that anticipates
-exactly this case: "the store-backed default and a remote memory service both have a name for" them.
-
-```java
-PeerMemory memory = new RemotePeerMemory(RemoteMemoryOptions.builder()
-        .baseUri("https://memory.internal:8080")
-        .token(tokens::current)          // called per request; tokens expire
-        .agentPeer("assistant")          // who ASSISTANT-role messages are stored as
-        .build());
-```
-
-| aimon-core tier | endpoint |
-| --- | --- |
-| `SNAPSHOT` | `GET /v1/workspaces/{ws}/conclusions` |
-| `SEARCH` | `POST /v1/workspaces/{ws}/recall` |
-| `CHAT` | `POST /v1/workspaces/{ws}/chat` |
-| `OBSERVE` | `POST /v1/workspaces/{ws}/conclusions` |
-| `INGEST` | `POST /v1/workspaces/{ws}/sessions/{session}/messages` |
-
-The pair maps across without translation: aimon-core's subject is the observed peer and its observer
-is the observer, which is the same directed pair this system keys every row on. A query with no
-observer names the subject's own self-pair.
-
-Three capability signals are false, and each is a real difference rather than an omission — recall
-is not narrowed by session, because a conclusion outlives the session that produced it; an injected
-observation's confidence is derived from its level and its reinforcement rather than supplied; and
-ingestion queues rather than derives, so a receipt never reports `derived`.
-
-It builds against `at.aimon.core:aimon-core:0.2.4`, the first release containing the five tiers, and
-needs nothing but that coordinate — no sibling checkout, and no composite build.
-`:aimon-memory-client:verifyCoreIsReleased` is what keeps that true: it refuses a publish when
-aimon-core resolved to a project rather than a released artifact, when it resolved to a snapshot, or
-when the jar it resolved does not actually contain `PeerMemory`.
-
-The contract suite is the one thing that reaches past that coordinate.
-`at.aimon.core:aimon-memory-testkit` first ships in aimon-core 0.3.0, so it is pinned separately as
-`aimonTestkit` and `:aimon-memory-client:contractTest` is a source set of its own that skips itself
-where the artifact is absent — see [Running it](#running-it).
-
----
-
-## Design notes
-
-Six decisions that are not obvious from the code.
-
-**Memory belongs to a pair, decided on day one.** `(workspace, observer, observed)` is a composite
-foreign key on every conclusion. Retrofitting this is not a migration, it is a rewrite, which is why
-it is here before anything needs it.
-
-**The ranking denominator is constant.** Weights sum to 1.00 and stay there whether or not a signal
-fired. The system this formula derives from rescaled by how many stores answered, so the same
-conclusion scored differently depending on configuration. Here a missing signal contributes zero: the
-score drops honestly and the ordering among candidates is untouched.
-
-**The threshold cuts the fused score.** Cutting on semantic similarity alone discards exactly the
-rows an exact keyword match was about to rescue.
-
-**Forgetting is measured from the last reinforcement, not from creation.** A fact that keeps coming
-up keeps resetting its own clock and never ages; something mentioned once slides down on its own.
-`times_derived` was already being maintained by dedup — one source system counts it without ranking
-on it, the other ranks without having it.
-
-**Language is a column, not an index setting.** `content_analyzed` is produced by the workspace's
-analyzer at write time and indexed with the `simple` dictionary. One index serves Korean, English and
-bigram-fallback workspaces, and swapping an analyzer is a re-index rather than a migration.
-
-**Everything that changes a conclusion writes an event.** Not bookkeeping — the dreamer edits memory
-with nobody watching, and without the log there is no answer to "where did this come from" about a
-belief no human ever stated.
-
----
-
-## Testing
-
-```
-406  tests, all green
-165  of them need no database (`checkAll`)
-241  of them do (`integrationTest`)
-```
-
-| Layer | Method | Gate |
-|---|---|---|
-| Ranking | golden fixtures | six decimals, zero rank inversions |
-| Dedup | Testcontainers | one test per branch and per boundary |
-| Normalisation | Java vs SQL, side by side | character-for-character parity |
-| LLM paths | record/replay | CI is replay-only; a miss is a failure |
-| Authorisation | route allowlist | a route with no policy entry fails the build |
-| Architecture | ArchUnit | dependencies point one way |
-| Index usage | `EXPLAIN` with seqscan disabled | every index reachable by its real query |
-| Ranking quality | nDCG / MRR against a baseline | no regression, per query and in aggregate; the baseline records the corpus it was measured on |
-| Load | concurrent readers and writers | no errors, gap-free sequence under contention (CI runs a small profile) |
-| Configuration | validated at the write boundary | an unknown key or an unusable value is a 422, never a silent fallback |
-| Provider wire format | a real server on an ephemeral port | the request body is asserted, not the object that produced it |
-| API description | generated against committed | fails when `docs/openapi.json` falls behind, or a route has no summary and scope |
-| aimon-core adapter | a real server on an ephemeral port | the pair's direction, the five tiers' bodies, and the three honest capability signals |
-
-Two things worth knowing about the suite.
-
-`RoutePolicyCoverageTest` walks the live handler mappings and fails if any route is missing from
-`RoutePolicy`. Adding an endpoint without deciding who may call it breaks the build, rather than
-shipping with whatever the framework's default was.
-
-`NormalisationParityTest` compares `Normalizer.normalize` against its SQL twin for every input that
-has ever caused trouble. It found a real divergence during development: Postgres `btrim` strips only
-spaces while Java's `strip()` strips all whitespace, so tabbed content would have skipped dedup stage
-2 silently. Both sides are now pinned to one explicit rule.
-
-Golden fixtures prove the formula is implemented as specified. They say nothing about whether the
-weights are any good — that needs a labelled evaluation set, and it is a separate gate.
-
----
-
-## Evaluation
-
-Three gates, deliberately separate, because they fail for different reasons.
-
-**Golden fixtures** (`test-fixtures/golden/`) pin every signal and the fused score to six decimal
-places. They prove the formula is implemented as specified. They cannot tell a correct implementation
-of a bad formula from a correct implementation of a good one, because a wrong weight produces a
-consistent answer the fixture faithfully records.
-
-**A labelled ranking set** (`test-fixtures/eval/ranking.json`) — 40 Korean conclusions, 50 queries,
-103 graded judgements — scored with nDCG@5/@10, MRR and recall@10 against a committed baseline. The
-gate is one-sided: improvements pass, regressions fail, per query as well as in aggregate.
-
-```
-mean nDCG@5 0.671   nDCG@10 0.700   MRR 0.795   recall@10 0.655
-```
-
-Read those as a regression baseline, not as a quality claim. Without provider credentials the
-embedder is lexical, so `sem` behaves like a second keyword signal — which is exactly why the weakest
-queries are the conceptual ones (*"앨리스의 여행 계획"* scores 0.000, because nothing lexical connects
-"여행 계획" to "오사카행 항공권을 예약했다") and the strongest are the ones naming a term outright. The
-gap between those two numbers is a fair estimate of what a real embedder has to buy. Twelve of the
-fifty queries score below 0.35 and every one of them is conceptual, which is the shape of that gap.
-
-Verified by breaking it: shifting the weights onto recency drops the mean and the gate fails.
-
-**A qualitative dialectic set** (`test-fixtures/eval/dialectic.json`) — 30 queries across
-enumeration, supersession, contradiction, abstention and provenance, with a weighted rubric. Graded
-by a person, because whether an answer is grounded or merely plausible is a judgement and a scripted
-model would be marking its own homework. `./scripts/dialectic-sheet.sh` prints the scoring sheet; a
-test keeps the set itself from rotting.
-
-## Not done
-
-Stated plainly rather than left to be discovered.
-
-- **The ranking weights are still untuned against real intent.** The gate above catches regressions;
-  it cannot say the weights are right, because the judgements are scored against a synthetic
-  embedder. That needs real traffic, and the weights are configuration for exactly this reason.
-- **The evaluation set is 50 queries, not the 100–200 the plan asked for.** Deliberately: with a
-  lexical stand-in for the embedder, more hand-written judgements sharpen the regression gate and add
-  nothing to confidence in the weights. The rest of that gap closes with traffic, not with authoring.
-- **No committed LLM fixtures.** The replay mechanism is proven end to end, including a multi-step
-  tool loop, but every recorded call in the suite comes from a scripted backend.
-  `./scripts/record-fixtures.sh` records against a real provider once credentials exist.
-- **Prompts are unscored.** The set and the rubric are written; nobody has run them against a real
-  model and filled the sheet in.
-- **Load figures are from a laptop.** The harness and the numbers are real (see the runbook), but
-  they describe a container on a developer machine, not production hardware. CI runs the profile at a
-  small size for its assertions — no errors, a gap-free sequence — and ignores its timings.
-
 ## Documents
 
 Korean is the canonical text. Every document has an English counterpart at the same path with an
@@ -353,17 +148,25 @@ Korean is the canonical text. Every document has an English counterpart at the s
 Korean only, and [`docs/spec/README.md`](docs/spec/README.md) says why and maps their sections for a
 reader who does not read Korean.
 
-- [`docs/spec/aimon-memory-design.md`](docs/spec/aimon-memory-design.md) — the specification (Korean)
-- [`docs/spec/aimon-memory-build-plan.md`](docs/spec/aimon-memory-build-plan.md) — the plan this was
-  built from (Korean)
-- [`docs/adr/`](docs/adr/README.en.md) — where this deviates from either, and why, with the evidence.
-  [ADR 0007](docs/adr/0007-aimon-core-boundary.en.md) is the one to read first if you arrived from aimon-core:
-  it draws the boundary between the two repositories
-- [`docs/openapi.json`](docs/openapi.json) — the 33 routes, their request and response schemas, and the
-  scope each one needs. Generated from the running application and committed; a test holds the two together
-- [`docs/runbook.en.md`](docs/runbook.en.md) — deploying, tuning, and what to check when something is wrong
-- [`docs/dashboards/`](docs/dashboards) — a Grafana dashboard, `aimon-memory-overview.json`
-- [`test-fixtures/README.en.md`](test-fixtures/README.en.md) — the two fixture corpora and what each proves
+Each document **owns something.** Where the same fact appears twice, one of them is a summary and
+carries a link to the canonical source
+([ADR 0008](docs/adr/0008-arc42-architecture-doc.en.md)).
+
+| Document | What it owns |
+|---|---|
+| [`docs/architecture.en.md`](docs/architecture.en.md) | **The architecture description.** Goals, constraints, context, building blocks, quality gates, risks. arc42's twelve sections |
+| [`docs/concepts.en.md`](docs/concepts.en.md) | **The concepts.** Pairs, the three tiers, the six signals, dedup and forgetting, and why each is shaped that way |
+| [`docs/guide.en.md`](docs/guide.en.md) | **The user guide.** From minting a token to tuning recall, followed through in `curl` |
+| [`docs/runbook.en.md`](docs/runbook.en.md) | Deploying, tuning, and what to check when something is wrong |
+| [`docs/adr/`](docs/adr/README.en.md) | Decision records: where this deviates from the specification, and why |
+| [`docs/openapi.json`](docs/openapi.json) | 33 routes, schemas, scopes. A test holds it to the code |
+| [`docs/spec/`](docs/spec/README.en.md) | The frozen specification and plan (2026-08-31, Korean) |
+| [`docs/dashboards/`](docs/dashboards) | A Grafana dashboard, `aimon-memory-overview.json` |
+| [`test-fixtures/README.en.md`](test-fixtures/README.en.md) | The two fixture corpora and what each proves |
+
+If you arrived from aimon-core, start at
+[ADR 0007](docs/adr/0007-aimon-core-boundary.en.md) — it draws the boundary between the two
+repositories.
 
 ## Licence and contributing
 

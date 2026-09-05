@@ -17,6 +17,7 @@
 | [0005](0005-agpl-boundary.md) | 클린룸 경계 | accepted · 2026-08-31 | 명세는 `aimon-memory-design.md` 하나뿐. 프롬프트·스키마·SQL 은 전부 새로 썼다 |
 | [0006](0006-fanout-cost.md) | 추출은 배치당 한 번이 아니라 관측하는 쌍마다 한 번 돈다 | accepted · 2026-08-31 | 명세의 fan-out 절약은 쌍의 관점을 지워야만 성립한다. 비용을 택하고 기록했다 — 배치당 N + N(N−1) |
 | [0007](0007-aimon-core-boundary.md) | aimon-core 와의 경계는 `PeerMemory` 이고, 그것뿐이다 | accepted · 2026-09-04 | 이음매는 타입 하나. 테넌시는 이쪽, 에이전트는 저쪽. 덧붙임 두 개가 계약 스위트 배선과 그 뒤의 좌표 분리를 기록한다 |
+| [0008](0008-arc42-architecture-doc.md) | 아키텍처 서술은 arc42 문서 하나로 모으고, 명세는 건드리지 않는다 | accepted · 2026-09-05 | `architecture.md` 가 정본이되 규범이 아니라 서술이다. README 는 아키텍처 서술을 넘기고, 문서마다 소유하는 것이 정해진다 |
 
 aimon-core 쪽에서 왔다면 [0007](0007-aimon-core-boundary.md) 부터 읽으면 된다. 두 저장소 사이의 경계를
 긋는 문서이고, 두 개의 덧붙임이 그 뒤에 실제로 일어난 일을 담고 있다.

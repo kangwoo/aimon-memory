@@ -24,6 +24,20 @@ build.
 **`at.aimon.core.memory.PeerMemory` is the only seam. Everything above it is aimon-core's;
 everything behind it is ours.**
 
+```mermaid
+flowchart TB
+    agent["aimon-core<br/>agents, tools, prompt injection, redaction,<br/>and one node-local backend (memory.file)"]
+    seam["at.aimon.core.memory.PeerMemory<br/>SNAPSHOT · SEARCH · CHAT · OBSERVE · INGEST<br/>and three capability signals"]
+    client["aimon-memory-client<br/>RemotePeerMemory"]
+    svc["aimon-memory<br/>schema, derivation, ranking, forgetting,<br/>tenancy, authorisation"]
+
+    agent -->|"assembles one"| seam
+    seam -->|"implemented by"| client
+    client -->|"HTTP /v1"| svc
+
+    style seam stroke-width:3px
+```
+
 aimon-core owns the agent — execution, tools, prompt injection, redaction — and one node-local
 memory backend for deployments that do not want a service. This repository owns durable multi-tenant
 memory: the schema, the derivation pipeline, ranking, and the tenancy model. The two meet at five
