@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only, declared rather than inherited. Nothing in this workflow uses the token — there is no comment to
+# post, no artifact to push, no release to cut — so the default permissions of whatever the repository happens
+# to be set to are more than it needs. `release.yml` says the same thing for the same reason.
+permissions:
+  contents: read
+
 env:
   # CI never talks to a live model. Recording is a deliberate local act.
   AIMON_MEMORY_LLM_MODE: replay
@@ -12,6 +18,17 @@ env:
 jobs:
   # The fast gate: formatting, style, the BOM's claim about itself, and the tests that need no daemon.
   # Everything here runs in under a minute, so a formatting mistake does not wait behind a database.
+  #
+  # It is also the only standing check that this repository can be built by someone who is not its
+  # author. A runner has an empty ~/.m2, so anything reachable only through `publishToMavenLocal`
+  # fails here and nowhere else — which is exactly what happened while `aimonCore` was pinned to a
+  # snapshot. Keep it that way: no step here may populate the local Maven repository.
+  #
+  # One tier is knowingly not run. `:aimon-memory-client:contractTest` subclasses
+  # `at.aimon.core:aimon-memory-testkit`, which ships first in aimon-core 0.3.0 and is on no remote
+  # repository yet, so the source set skips itself here and says so in the log. A green run of this
+  # job is not evidence that aimon-core's contract suite passed; that has to be run by hand until
+  # the testkit is published, and CONTRIBUTING.md says so to anyone opening a pull request.
   check:
     runs-on: ubuntu-latest
     steps:

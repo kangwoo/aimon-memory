@@ -22,12 +22,23 @@ mavenPublish    = "0.30.0"
 # every other module here is a service and stays on the toolchain above. Kept as a version rather than a
 # literal so the two numbers that have to move together sit next to each other.
 javaCompat      = "17"
-# TEMPORARY: 0.3.0 is the release that carries `aimon-memory-testkit`, and it has not shipped. Pinned to the
-# snapshot so `aimon-memory-client` can subclass the contract suite now; put back to a released `0.3.0` (and
-# drop `mavenLocal()` from settings.gradle.kts and build.gradle.kts) as soon as that release is on Central.
-# Reproduce the snapshot with, from an aimon-core checkout:
+# The aimon-core this build compiles, tests and publishes against. 0.2.4 is the first release containing the
+# five-tier `PeerMemory` API, and it is on Central — so a clone with an empty ~/.m2 resolves it like any other
+# coordinate. That is the property this line exists to hold: nothing on the path from `git clone` to `checkAll`
+# may depend on an artifact only one machine has.
+aimonCore       = "0.2.4"
+
+# The contract suite's version, deliberately separate from the one above because the artifact is in a different
+# state. `at.aimon.core:aimon-memory-testkit` is on no remote repository at all — it first ships in aimon-core
+# 0.3.0, and the only copy that exists anywhere is whatever `publishToMavenLocal` left in a ~/.m2.
+#
+# Kept apart so that fact reaches exactly one place: the opt-in contract source set in aimon-memory-client, which
+# skips itself when the coordinate does not resolve. Held as one version — the way it was until this line was
+# split out — an unpublished artifact decides whether the whole repository compiles, and it decided no.
+# Reproduce it from an aimon-core checkout with:
 #   ./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
-aimonCore       = "0.3.0-SNAPSHOT"
+# Collapse the two back into one when 0.3.0 is on Central and `aimonCore` can name it.
+aimonTestkit    = "0.3.0-SNAPSHOT"
 
 [libraries]
 jooq              = { module = "org.jooq:jooq",                            version.ref = "jooq" }
@@ -48,7 +59,7 @@ aimon-core        = { module = "at.aimon.core:aimon-core",                 versi
 # it. Referenced by GAV and never as a project: `:aimon-memory-testkit` in THIS build is an unrelated internal
 # module of the same name (settings.gradle.kts), and `project(":aimon-memory-testkit")` would pick it up
 # silently — a green build measuring the wrong thing.
-aimon-testkit     = { module = "at.aimon.core:aimon-memory-testkit",      version.ref = "aimonCore" }
+aimon-testkit     = { module = "at.aimon.core:aimon-memory-testkit",      version.ref = "aimonTestkit" }
 assertj           = { module = "org.assertj:assertj-core",                 version.ref = "assertj" }
 
 [plugins]

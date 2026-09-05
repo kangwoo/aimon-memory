@@ -21,9 +21,10 @@ allprojects {
 
     repositories {
         mavenCentral()
-        // TEMPORARY, and paired with the same line in settings.gradle.kts — see the reason there. Both are
-        // needed: `dependencyResolutionManagement` governs the modules, this block governs the root project
-        // and anything resolved outside that management.
+        // Paired with the same line in settings.gradle.kts — the reason is written out there. One coordinate
+        // needs it, `at.aimon.core:aimon-memory-testkit`, and only the opt-in contract tier asks for that one.
+        // Both blocks are needed and this is the one that wins: project repositories take precedence over the
+        // settings block under Gradle's default `PREFER_PROJECT` mode.
         mavenLocal()
     }
 }
@@ -69,6 +70,12 @@ tasks.register("checkAll") {
     // The BOM has no tests, but it has a claim that can be wrong — that it manages exactly the modules
     // this build publishes — so the gate picks up its `verifyBom` in place of the test task it lacks.
     dependsOn(":aimon-memory-bom:verifyBom")
+    // aimon-core's PeerMemory contract suite, which is a Test task of its own rather than part of
+    // `aimon-memory-client`'s `test` — the artifact it subclasses is not on Central yet, so the source set
+    // skips itself where it does not resolve (see that module's build file). Named here rather than left
+    // out: on a machine that has the testkit the suite belongs in the gate, and on one that does not it
+    // costs a skipped task and a line saying why.
+    dependsOn(":aimon-memory-client:contractTest")
 }
 
 tasks.register("integrationTest") {

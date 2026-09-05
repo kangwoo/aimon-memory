@@ -19,6 +19,9 @@ import at.aimon.memory.recall.signal.ReinforcementSignal;
  * Combines the six signals into one score.
  *
  * <p>Two corrections to the formula this is derived from, and they are the reason the layer exists.
+ * That formula is mem0's, which is Apache-2.0 and permits it; the derivation is recorded in ADR 0005
+ * and the weights themselves carry the same note in {@code FusionWeights}. "The original" below is
+ * mem0 in both places.
  *
  * <p><b>The denominator is constant.</b> Weights sum to 1.00 and stay there whether or not a signal
  * produced anything. The original rescaled by how many stores answered — 1.0, 2.0 or 2.5 — so the

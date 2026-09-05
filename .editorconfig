@@ -9,7 +9,11 @@ trim_trailing_whitespace = true
 [*.java]
 indent_style = space
 indent_size = 4
-max_line_length = 110
+# 120, because two things enforce that number and this file enforces nothing: `LineLength` in
+# config/checkstyle/checkstyle.xml and `lineSplit` in config/eclipse/eclipse-formatter.xml. This line is
+# the editor's copy of their answer, and it read 110 for long enough to be documented as the limit. Move
+# all three together or not at all.
+max_line_length = 120
 
 [*.{kts,yml,yaml,json}]
 indent_style = space

@@ -1,10 +1,19 @@
 rootProject.name = "aimon-memory"
 
 dependencyResolutionManagement {
-    // TEMPORARY, remove with the `0.3.0-SNAPSHOT` pin in gradle/libs.versions.toml. `mavenLocal()` is here
-    // only so this build can resolve `at.aimon.core:aimon-memory-testkit`, which the contract suite in
-    // `aimon-memory-client` subclasses and which is not on Central until aimon-core 0.3.0 ships. Ordered
-    // after Central so a released artifact always wins over whatever a `publishToMavenLocal` left behind.
+    // `mavenLocal()` is here for one coordinate: `at.aimon.core:aimon-memory-testkit`, which the contract
+    // source set in `aimon-memory-client` subclasses and which is on no remote repository until aimon-core
+    // 0.3.0 ships. Nothing on the path from `git clone` to `checkAll` reaches through it — aimon-core itself
+    // is pinned to a released 0.2.4 (gradle/libs.versions.toml) — so a machine that has never published
+    // aimon-core locally builds and passes every gate, and only the contract tier skips itself.
+    //
+    // Ordered after Central so a released artifact always wins over whatever a `publishToMavenLocal` left
+    // behind. Remove it when 0.3.0 puts the testkit on Central and `aimonTestkit` folds back into `aimonCore`.
+    //
+    // Note these are the fallback and not the repositories in force: the root build.gradle.kts declares them
+    // per project, and Gradle's default `PREFER_PROJECT` mode lets those win — it says so in the resolution
+    // failure, which is a strange place to learn it. Both blocks are kept saying the same thing so the answer
+    // does not depend on which one a reader happens to find.
     repositories {
         mavenCentral()
         mavenLocal()
