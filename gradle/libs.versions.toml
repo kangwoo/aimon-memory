@@ -22,7 +22,7 @@ jjwt            = "0.13.0"
 # then serves 179KB of it on the service port with no token — under a flag that says the description is
 # off, and regardless of what that flag says. The document is the deliverable; a UI can be pointed at
 # docs/openapi.json locally.
-springdoc       = "2.9.0"
+springdoc       = "3.1.0"
 assertj         = "3.27.7"
 spotless        = "6.25.0"
 checkstyle      = "10.12.5"
