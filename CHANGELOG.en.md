@@ -74,6 +74,10 @@ first release goes out.
 - The product name changed inside the specification documents too. Two names there —
   `dyad-design.md` and `dyad-core` — no longer resolved to anything.
 - Documentation moved to Korean as the canonical text with an `.en.md` English companion.
+- Four entries nothing declared came out of the version catalogue — `jooq`, `pgvector`, `nanojson`,
+  and a Testcontainers BOM. The first two predate ADR 0002 deciding against them. The rule at the top
+  of the file now runs both ways: if it is not there it is not used, and if nothing uses it, it is
+  not there.
 
 ### Fixed
 
