@@ -442,6 +442,33 @@ Entities are the proper nouns pulled out of conclusions (`entities`) and their l
    a hit the semantic signal misses; that is one of the things the smoke test proves.
 2. **Provenance** — starting from an entity and walking backwards.
 
+### Names fold onto a normalised key
+
+A node's identity is not its display name but its **normalised key** (`name_norm`): stripped,
+lowercased, and with internal whitespace collapsed to single spaces. So `"Seoul"`, `"seoul"` and
+`"  Seoul  "` are **one node**, not three, and the `ent` signal does not scatter when spelling wobbles.
+
+The key is unique **within the workspace** — `UNIQUE (workspace_name, name_norm)` — not within the
+pair. The node is shared: every pair that names Seoul points at the same row, which is why a name
+mentioned a thousand times is embedded once. What is pair-scoped is the **edge**, in `entity_links`,
+which is where the observer and the observed are carried. The two are worth keeping straight, because
+`countWeight` discounts an entity by how many conclusions it is attached to, and counting that
+workspace-wide rather than inside the querying pair once collapsed the `ent` signal for exactly the
+entities it exists to reward.
+
+The same rule is what makes a blank name dangerous. `""`, `"   "` and `"\t"` all fold onto the same
+empty key, so they do not become several pieces of junk — they become **one node named nothing**, and
+every conclusion carrying a stray empty string links to it. Such a node has edges, so the orphan
+sweep keeps it; it has a vector, so it occupies a slot in the index; and it hands `ent` to a set of
+conclusions that have nothing in common. So **a blank name is dropped before it can become a node.**
+
+Dropped, not refused. Most names arriving here are model output, and throwing would not even undo
+the write: the writer is not transactional, so the conclusions are already stored and would simply be
+left without their entity edges, while the work unit retried five times — re-deriving the same facts,
+which dedup counts as reinforcement and adds to `times_derived`, the `reinf` signal — before the batch
+was quarantined. Injecting directly over HTTP is refused instead — a client can fix its own bug
+([`guide.en.md` §4](guide.en.md#option-b--inject-a-conclusion-directly)).
+
 ### The provenance chain
 
 `GET .../recall/provenance?entity=Seoul&observer=alice&observed=alice`

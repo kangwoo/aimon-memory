@@ -1,8 +1,10 @@
 package at.aimon.memory.store.repo;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.store.Drafts;
@@ -19,6 +21,24 @@ class EntityTest extends StoreTestBase {
         // One node no matter how many pairs mention it — the improvement over per-user entity stores.
         assertThat(second.id()).isEqualTo(first.id());
         assertThat(second.nameNorm()).isEqualTo("서울");
+    }
+
+    /**
+     * A name that normalises to nothing is refused by the table itself.
+     *
+     * <p>Nothing above this should ever ask: {@code EntityPipeline.linkAll} drops blank names, and it
+     * is the only place a name becomes a node. But that is a property of today's call graph rather than
+     * of the schema — a fourth writer, or a filter someone simplifies away, and the nameless node is
+     * back with nothing to notice. {@code ck_entity_name_norm} (V12) is the half that keeps holding,
+     * and it cannot fire on model output: the filter's {@code String.isBlank()} and {@code normalize}'s
+     * {@code String.strip()} are the same predicate, so reaching it means the code above is wrong.
+     */
+    @Test
+    void aNameThatNormalisesToNothingIsRefusedByTheSchema() {
+        seedPair("alice", "alice");
+
+        assertThatThrownBy(() -> entities.upsert(WORKSPACE, "   ", null, Drafts.embed("서울")))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("ck_entity_name_norm");
     }
 
     /** Different names stay different nodes; merging two entities cannot be undone. */

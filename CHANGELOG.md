@@ -168,6 +168,47 @@
 - **dialectic 의 대화 이력도 마찬가지였다.** `ChatRequest.history` 에 `@Valid` 가 없어서 `ChatTurn` 의
   `@NotBlank` 두 개가 평가되지 않았고, `content` 나 `role` 이 빈 turn 이 **그대로 모델 제공자에게
   전송됐다.** `POST /chat` 과 `/chat/stream` 둘 다 이제 400 이다. **소비자에게 보이는 변경이다.**
+- **빈 엔티티 이름이 이름 없는 노드 하나를 만들어 `ent` 신호를 오염시켰다.** `""`, `"   "`, `"\t"` 가
+  전부 같은 빈 키로 정규화되므로 쓰레기 여러 개가 아니라 **이름이 없는 노드 하나**가 생기고, 빈
+  문자열을 달고 온 모든 결론이 거기 연결됐다. 그 노드는 링크가 있어 orphan 청소가 지우지 않고, 벡터가
+  있어 인덱스에서 `entityTopK` 슬롯을 차지한다. 그리고 그 링크들이 서로 아무 관계 없는 결론을 향하므로,
+  질의 벡터가 그 근처에 떨어지면 **무관한 결론들이 `ent`(가중치 0.13)를 한꺼번에 받는다.**
+  `GET /recall/provenance?entity=` 에 공백을 줘도 200 으로 그 노드가 돌아왔다.
+- **그 구조는 임베더와 무관하지만, 거기 붙인 수치는 그렇지 않다.** 대역 임베더에서 무관한 사실 셋이 각각
+  `ent = 0.996` 으로 나왔고 — 이건 링크 3개에 대한 `countWeight` 값 그 이상이 아니다 — explain 은
+  `matchedEntities: [""]` 로 보고했다. 다만 그 수치를 보려면 맞는 질의가 필요했다. `StubEmbedder` 는
+  토큰을 못 찾은 텍스트에 `"empty"` 토큰으로 폴백하므로 빈 노드는 그 단어의 벡터를 갖고, 다른 질의에서는
+  `ent = 0.0` 이었다. 실제 임베더가 `embed("")` 를 실제 질의들 사이 어디에 놓는지는 **측정한 바 없고**,
+  따라서 그 노드가 얼마나 자주 걸리는지도 모른다. 임베더와 무관하게 남는 것은 구조다 — 노드 하나,
+  링크가 있어 orphan 청소를 살아남고, `entityTopK` 슬롯을 차지하며, 걸릴 때마다 거기 달린 것을 한꺼번에
+  들어 올린다.
+- **그래서 두 계층으로 고쳤고, 두 계층이 서로 다른 답을 하는 것이 요점이다.**
+  - `EntityPipeline.linkAll` 에서 **걸러 낸다(거절이 아니다).** 이 시스템에 들어오는 엔티티 이름은
+    주입 엔드포인트·deriver·dreamer 셋이 전부이고 모두 이 길목을 지난다. 거절하지 않는 이유는 여기 오는
+    것 대부분이 **모델 출력**이기 때문이고, 예외를 던져 봐야 쓰기가 되돌아가지도 않는다.
+    `ConclusionWriter.write` 는 트랜잭션이 아니라서 배치의 결론은 이미 커밋돼 있고 **엔티티 엣지만 빠진
+    채** 남는다. 그 상태로 work unit 이 5회 재시도하며 같은 사실을 다시 도출하고, dedup 이 그것을 강화로
+    세어 `times_derived`(= `reinf` 신호)를 부풀린 뒤 배치가 격리된다. `DeriverService` 와
+    `DreamerService` 가 **content** 가 빈 항목을 이미 건너뛰고 있고, 이건 한 필드 옆에서 같은 판단을 한
+    것이다.
+  - `POST /v1/workspaces/{ws}/conclusions` 는 **거절한다.** `CreateConclusion.entities` 가
+    `List<@NotBlank @UsableName String>` 이 되어 400 이다. HTTP 클라이언트는 자기 버그를 고칠 수 있으니
+    조용히 버리는 것보다 알려 주는 편이 낫다. 덤으로 `"entities": [null]` 이 **500 `internal_error`** 를
+    내던 것도 함께 닫혔다 — 이제 400 이다.
+  - 두 계층이 blank 의 정의부터 맞아야 했다. `@NotBlank` 는 `String.trim()`(U+0020 이하)으로 규정돼 있고
+    필터는 `String.isBlank()`(`Character.isWhitespace`)를 쓴다. 그래서 `entities: ["\u2000"]` 은
+    **200 으로 받아들여진 뒤 흔적 없이 버려졌다** — 400 이 막으려던 바로 그 조용한 실종이 제약 자신을
+    통해 일어난 것이다. `@UsableName` 이 그 규칙이고, 필터와 같은 메서드를 쓴다.
+- **이미 저장된 노드는 지우고, 불변식을 스키마로 내렸다 (V12).** 필터는 새로 들어오는 것만 막는다.
+  이미 있는 이름 없는 노드는 링크가 있어 orphan 청소가 남기고, `reindex` 가 빈 표시 이름을 다시 임베딩해
+  인덱스에 돌려놓는다. `V12` 가 그것들을 지우고(`entity_links` 는 cascade), `ck_entity_name_norm
+  CHECK (name_norm <> '')` 를 추가한다. 이 검사는 모델 출력으로는 걸릴 수 없다 — `isUsable` 은
+  `String.isBlank()`, `normalize` 는 `String.strip()` 으로 같은 술어이기 때문이다. 즉 이게 걸리면 이미
+  데이터베이스 위쪽 코드가 틀린 것이고, `ck_level`·`ck_sync_state`·`ck_explicit_needs_session` 이
+  하는 일이 정확히 그것이다.
+- 위 `entities` 제약은 앞선 셋과 **성격이 다르다.** 그쪽은 발행 스키마가 이미 약속하고 있던 계약을
+  런타임이 지키게 만든 것이고, 이건 **없던 제약을 새로 만든 것**이다. 그래서 이번에는
+  `docs/openapi.json` 이 한 줄 바뀐다 — `CreateConclusion.entities.items` 에 `minLength: 1`.
 - 위 둘과 `CreateMessages` 까지 **세 자리가 같은 결함이었다** — 리스트를 받는 필드에 `@Valid` 가 없으면
   Bean Validation 이 리스트에서 멈추고 원소로 내려가지 않는다. 원소 타입의 제약은 선언만 되어 있고 한
   번도 평가되지 않는다. 이 결함이 오래 보이지 않은 이유가 특히 짚어 둘 값어치가 있다. **발행된 스키마는
