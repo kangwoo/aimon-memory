@@ -20,6 +20,7 @@ import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.ConclusionDraft;
 import at.aimon.memory.core.model.ConclusionLevel;
+import at.aimon.memory.core.model.CorpusStats;
 import at.aimon.memory.core.model.DedupOutcome;
 import at.aimon.memory.core.model.EventType;
 import at.aimon.memory.core.model.Page;
@@ -131,7 +132,7 @@ public class ConclusionRepository implements ConclusionStore {
             return List.of();
         }
 
-        Bm25.CorpusStats stats = corpusStats(pair, terms);
+        CorpusStats stats = corpusStats(pair, terms);
         List<ScoredConclusion> scored = new ArrayList<>(candidates.size());
         for (Conclusion candidate : candidates) {
             scored.add(
@@ -148,7 +149,7 @@ public class ConclusionRepository implements ConclusionStore {
      * a conclusion found semantically still has a real BM25 score, and scoring it zero would make the
      * ranking depend on which path happened to surface it first.
      */
-    public Bm25.CorpusStats corpusStats(PairKey pair, List<String> terms) {
+    public CorpusStats corpusStats(PairKey pair, List<String> terms) {
         Map<String, Object> totals = jdbc
                 .sql("SELECT count(*) AS n,"
                         + " coalesce(avg(array_length(string_to_array(c.content_analyzed, ' '), 1)), 0) AS avg_len"
@@ -157,7 +158,7 @@ public class ConclusionRepository implements ConclusionStore {
         long documentCount = ((Number) totals.get("n")).longValue();
         double averageLength = ((Number) totals.get("avg_len")).doubleValue();
         if (documentCount == 0) {
-            return Bm25.CorpusStats.empty();
+            return CorpusStats.empty();
         }
 
         List<Object> params = new ArrayList<>();
@@ -174,7 +175,7 @@ public class ConclusionRepository implements ConclusionStore {
                 GROUP BY t.term
                 """).params(params).query((rs, i) -> Map.entry(rs.getString("term"), rs.getLong("df"))).list()
                 .forEach(entry -> frequencies.put(entry.getKey(), entry.getValue()));
-        return new Bm25.CorpusStats(documentCount, averageLength, frequencies);
+        return new CorpusStats(documentCount, averageLength, frequencies);
     }
 
     /**

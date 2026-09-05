@@ -1,9 +1,8 @@
 package at.aimon.memory.engine;
 
-import java.nio.file.Path;
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,10 +12,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
 import at.aimon.memory.core.MemoryException;
-import at.aimon.memory.core.spi.Embedder;
 import at.aimon.memory.core.spi.LlmClient;
-import at.aimon.memory.embed.EmbeddingProperties;
-import at.aimon.memory.embed.OpenAiEmbedder;
 import at.aimon.memory.llm.DefaultLlmClient;
 import at.aimon.memory.llm.LlmMode;
 import at.aimon.memory.llm.backend.AnthropicChatBackend;
@@ -27,37 +23,25 @@ import at.aimon.memory.llm.backend.ChatResponse;
 import at.aimon.memory.llm.backend.FallbackChatBackend;
 import at.aimon.memory.llm.backend.OpenAiChatBackend;
 import at.aimon.memory.llm.replay.RecordingChatBackend;
-import at.aimon.memory.store.StoreConfiguration;
-import at.aimon.memory.text.AnalyzerRegistry;
+import at.aimon.memory.recall.RecallConfiguration;
 
-/** Shared wiring: both the API and the worker import this and then add their own layer. */
+/**
+ * Shared wiring: both the API and the worker import this and then add their own layer.
+ *
+ * <p>What this class no longer does is the more informative half. It used to component-scan
+ * {@code at.aimon.memory.recall} and define the {@code Clock}, {@code AnalyzerRegistry} and
+ * {@code Embedder} beans that recall and store need — which made two published coordinates
+ * un-assemblable without this one, in the opposite direction to the layering the build enforces.
+ * Each of those now belongs to the lowest module that needs it, and this class reaches them by
+ * importing {@link RecallConfiguration}, which brings {@code StoreConfiguration} and
+ * {@code EmbedConfiguration} with it. What is left here is what only engine can own: the chat
+ * provider chain and its record/replay seam.
+ */
 @Configuration
-@Import(StoreConfiguration.class)
-@ComponentScan(basePackages = {"at.aimon.memory.engine", "at.aimon.memory.recall"})
+@Import(RecallConfiguration.class)
+@ComponentScan(basePackages = "at.aimon.memory.engine")
 @EnableConfigurationProperties(MemoryProperties.class)
 public class MemoryConfiguration {
-
-    @Bean
-    public Clock clock() {
-        return Clock.systemUTC();
-    }
-
-    @Bean
-    public AnalyzerRegistry analyzerRegistry(MemoryProperties properties) {
-        String dictionary = properties.text().koreanUserDictionary();
-        return new AnalyzerRegistry(dictionary == null || dictionary.isBlank() ? null : Path.of(dictionary));
-    }
-
-    @Bean
-    public Embedder embedder(MemoryProperties properties) {
-        MemoryProperties.Embed embed = properties.embed();
-        if ("openai".equalsIgnoreCase(embed.provider())) {
-            return new OpenAiEmbedder(new EmbeddingProperties(embed.baseUrl(),
-                    require(embed.apiKey(), "aimon.memory.embed.api-key"), embed.model(), embed.dimensions(),
-                    embed.maxBatchSize(), embed.maxInputTokens(), embed.maxAttempts(), embed.timeout()));
-        }
-        return new HashingEmbedder(embed.dimensions());
-    }
 
     /**
      * The LLM client, wrapped for record/replay.
@@ -84,15 +68,32 @@ public class MemoryConfiguration {
         return new DefaultLlmClient(backend);
     }
 
+    /**
+     * A backend for one configured provider name, or {@code null} for the two spellings of "no
+     * provider here".
+     *
+     * <p>Anything else fails at startup. It used to return {@code null} for every unrecognised name,
+     * which turned {@code AIMON_MEMORY_LLM_PROVIDER=openal} into a deployment that starts, reports
+     * healthy, and answers every derivation and dialectic request with {@code llm_not_configured} —
+     * a message that names the setting the operator did set. A missing API key already stops the
+     * process, and an unusable provider name is the same mistake at the same boundary; the reason
+     * this one was quiet is that {@code none} and "not a provider" shared a branch. They no longer
+     * do: {@code none} is a decision and is honoured, a typo is not a decision.
+     */
     private static ChatBackend backendFor(String name, MemoryProperties properties) {
         MemoryProperties.Llm llm = properties.llm();
-        return switch (name == null ? "none" : name.toLowerCase(java.util.Locale.ROOT)) {
+        return switch (name == null ? "none" : name.toLowerCase(Locale.ROOT)) {
             case "openai" -> new OpenAiChatBackend(llm.openAiBaseUrl(),
                     require(llm.openAiApiKey(), "aimon.memory.llm.open-ai-api-key"), llm.openAiModel(), llm.timeout());
             case "anthropic" -> new AnthropicChatBackend(llm.anthropicBaseUrl(),
                     require(llm.anthropicApiKey(), "aimon.memory.llm.anthropic-api-key"), llm.anthropicModel(),
                     llm.timeout());
-            default -> null;
+            case "none", "" -> null;
+            default -> throw new MemoryException("unknown_llm_provider",
+                    "aimon.memory.llm.provider (or .fallback-provider) is '" + name + "', which this build does not "
+                            + "implement. Known providers: openai, anthropic, none. Startup fails rather than "
+                            + "treating it as 'none', because that produced a deployment which started healthy and "
+                            + "then answered every model call with llm_not_configured.");
         };
     }
 

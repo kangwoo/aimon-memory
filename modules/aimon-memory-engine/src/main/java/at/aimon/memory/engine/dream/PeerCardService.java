@@ -10,12 +10,12 @@ import org.springframework.stereotype.Service;
 import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Conclusion;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.LlmClient;
 import at.aimon.memory.core.spi.llm.LlmMessage;
 import at.aimon.memory.core.spi.llm.LlmRequest;
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.engine.prompt.Prompts;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.PeerCardRepository;
 
 /**
@@ -43,10 +43,10 @@ public class PeerCardService {
             """;
 
     private final LlmClient llm;
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final PeerCardRepository cards;
 
-    public PeerCardService(LlmClient llm, ConclusionRepository conclusions, PeerCardRepository cards) {
+    public PeerCardService(LlmClient llm, ConclusionStore conclusions, PeerCardRepository cards) {
         this.llm = llm;
         this.conclusions = conclusions;
         this.cards = cards;

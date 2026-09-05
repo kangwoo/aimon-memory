@@ -14,12 +14,12 @@ import at.aimon.memory.core.model.ConclusionDraft;
 import at.aimon.memory.core.model.ConclusionLevel;
 import at.aimon.memory.core.model.DedupOutcome;
 import at.aimon.memory.core.spi.Analyzer;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
 import at.aimon.memory.engine.entity.EntityPipeline;
 import at.aimon.memory.engine.prompt.Prompts;
 import at.aimon.memory.store.WorkspaceSettingsService;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.text.ContentHash;
 import at.aimon.memory.text.Normalizer;
 
@@ -34,12 +34,12 @@ import at.aimon.memory.text.Normalizer;
 @Service
 public class ConclusionWriter {
 
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final EntityPipeline entityPipeline;
     private final Embedder embedder;
     private final WorkspaceSettingsService settings;
 
-    public ConclusionWriter(ConclusionRepository conclusions, EntityPipeline entityPipeline, Embedder embedder,
+    public ConclusionWriter(ConclusionStore conclusions, EntityPipeline entityPipeline, Embedder embedder,
             WorkspaceSettingsService settings) {
         this.conclusions = conclusions;
         this.entityPipeline = entityPipeline;
@@ -83,7 +83,10 @@ public class ConclusionWriter {
         Analyzer analyzer = settings.analyzerFor(pair.workspaceName());
 
         List<String> texts = items.stream().map(Incoming::content).toList();
-        List<float[]> vectors = embedder.embedBatch(texts, EmbedPurpose.DOCUMENT);
+        // Checked before the loop, not discovered inside it. This method is not transactional — each
+        // upsert commits on its own — so a misaligned batch that failed at item i left i conclusions
+        // stored with none of their entity edges, which linkAll below never got to write.
+        List<float[]> vectors = Embedder.requireAligned(texts, embedder.embedBatch(texts, EmbedPurpose.DOCUMENT));
 
         List<DedupOutcome> outcomes = new ArrayList<>(items.size());
         Map<String, List<String>> entityNames = new LinkedHashMap<>();

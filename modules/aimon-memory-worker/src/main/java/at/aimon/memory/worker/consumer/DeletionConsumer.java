@@ -9,8 +9,8 @@ import at.aimon.memory.core.key.TaskType;
 import at.aimon.memory.core.key.WorkUnitKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.EventType;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.engine.entity.EntityPipeline;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.QueueRepository;
 
 /**
@@ -22,10 +22,10 @@ import at.aimon.memory.store.repo.QueueRepository;
 @Component
 public class DeletionConsumer implements WorkUnitConsumer {
 
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final EntityPipeline entities;
 
-    public DeletionConsumer(ConclusionRepository conclusions, EntityPipeline entities) {
+    public DeletionConsumer(ConclusionStore conclusions, EntityPipeline entities) {
         this.conclusions = conclusions;
         this.entities = entities;
     }

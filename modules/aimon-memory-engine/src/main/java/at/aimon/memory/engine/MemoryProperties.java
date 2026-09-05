@@ -5,20 +5,22 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Provider configuration for both runnable applications.
+ * Chat provider configuration, for both runnable applications.
  *
- * <p>{@code provider = none} and {@code hashing} exist so the system starts without credentials.
- * They are development conveniences and say so: a hashing embedder produces vectors whose
- * similarities are real but meaningless, which is fine for exercising a code path and useless for
- * anything else.
+ * <p>{@code provider = none} exists so the system starts without credentials — a replay-only
+ * deployment is legitimate and is how CI runs. It is a decision rather than a fallback: a name this
+ * build does not implement fails at startup instead of being read as {@code none}.
+ *
+ * <p>This used to carry {@code embed} and {@code text} as well. They moved to the modules that own
+ * the beans they feed — {@code at.aimon.memory.embed.EmbedProperties} and
+ * {@code at.aimon.memory.store.TextProperties} — so that those modules can be assembled without this
+ * one. The property prefixes did not change, so no deployment's configuration moved with them.
  */
 @ConfigurationProperties(prefix = "aimon.memory")
-public record MemoryProperties(Llm llm, Embed embed, Text text) {
+public record MemoryProperties(Llm llm) {
 
     public MemoryProperties {
         llm = llm == null ? Llm.defaults() : llm;
-        embed = embed == null ? Embed.defaults() : embed;
-        text = text == null ? new Text(null) : text;
     }
 
     /**
@@ -45,30 +47,6 @@ public record MemoryProperties(Llm llm, Embed embed, Text text) {
         static Llm defaults() {
             return new Llm(null, null, null, null, null, null, null, null, 0, null);
         }
-    }
-
-    /** @param provider {@code openai} or {@code hashing} */
-    public record Embed(String provider, String baseUrl, String apiKey, String model, int dimensions, int maxBatchSize,
-            int maxInputTokens, int maxAttempts, Duration timeout) {
-
-        public Embed {
-            provider = blankTo(provider, "hashing");
-            baseUrl = blankTo(baseUrl, "https://api.openai.com/v1");
-            model = blankTo(model, "text-embedding-3-small");
-            dimensions = dimensions <= 0 ? 1536 : dimensions;
-            maxBatchSize = maxBatchSize <= 0 ? 96 : maxBatchSize;
-            maxInputTokens = maxInputTokens <= 0 ? 8191 : maxInputTokens;
-            maxAttempts = maxAttempts <= 0 ? 4 : maxAttempts;
-            timeout = timeout == null ? Duration.ofSeconds(30) : timeout;
-        }
-
-        static Embed defaults() {
-            return new Embed(null, null, null, null, 0, 0, 0, 0, null);
-        }
-    }
-
-    /** @param koreanUserDictionary path to a Nori user dictionary; the fix for split proper nouns */
-    public record Text(String koreanUserDictionary) {
     }
 
     private static String blankTo(String value, String fallback) {

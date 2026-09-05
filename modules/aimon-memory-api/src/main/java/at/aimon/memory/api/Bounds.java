@@ -22,6 +22,21 @@ public final class Bounds {
     public static final int MAX_HISTORY = 500;
     public static final int MAX_PAGE = 10_000;
 
+    /**
+     * Ceiling on {@code ?tokens} for Tier 0 context.
+     *
+     * <p>This parameter is a budget, and the budget is the only thing bounding the response —
+     * {@code ContextService} keeps messages until it is spent. So an unbounded budget is an unbounded
+     * response, and this was the one number on the surface that did not pass through this class.
+     * {@code MAX_WINDOW} caps the rows read at five thousand, but nothing caps a message's length, so
+     * {@code ?tokens=2147483647} returned all five thousand in full while every other paging route
+     * here stops at two hundred.
+     *
+     * <p>128k is the largest context window a model could actually be handed. Past it the parameter
+     * has stopped being a budget and is only a lever on response size, which is what the cap is for.
+     */
+    public static final int MAX_CONTEXT_TOKENS = 128_000;
+
     private Bounds() {
     }
 
@@ -42,5 +57,14 @@ public final class Bounds {
 
     public static int history(int requested) {
         return requested <= 0 ? 100 : Math.min(MAX_HISTORY, requested);
+    }
+
+    /**
+     * A zero or negative budget falls back to the default rather than being clamped to zero: a
+     * negative one made {@code ContextService} compute a negative summary budget and then return
+     * exactly one message, which reads as an empty session rather than as a rejected parameter.
+     */
+    public static int contextTokens(int requested) {
+        return requested <= 0 ? 4_000 : Math.min(MAX_CONTEXT_TOKENS, requested);
     }
 }

@@ -20,6 +20,8 @@ building and running it.
 | **The exact shape of a route** | [`openapi.json`](openapi.json) — 33 routes, schemas, scopes |
 | **Why a decision went that way** | [ADRs](adr/README.en.md) — where the implementation departed from the specification, and why *(GitHub)* |
 | **The original specification** | [Specification and plan](spec/README.en.md) — frozen as of 2026-08-31 *(GitHub)* |
+| **To put a dashboard up** | [`dashboards/aimon-memory-overview.json`](dashboards/aimon-memory-overview.json) — a Grafana dashboard; which metrics to watch is in the [runbook](runbook.en.md#observability) |
+| **What the fixtures prove** | [Fixtures](../test-fixtures/README.en.md) — the two corpora and what each one proves *(GitHub)* |
 
 If you arrived from aimon-core, start at [ADR 0007](adr/0007-aimon-core-boundary.en.md) — it draws
 the boundary between the two repositories.

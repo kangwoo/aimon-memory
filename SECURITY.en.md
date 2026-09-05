@@ -16,7 +16,10 @@ Use GitHub's private reporting:
 That channel is visible only to the repository's maintainers, and the fix and the disclosure can be
 coordinated in the same place.
 
-<!-- TODO: add a contact email for reporters who cannot use a GitHub account -->
+**It is currently the only channel.** There is no contact email: there is one maintainer, and an
+address nobody watches is worse than none. If you cannot use a GitHub account, ask how to reach the
+maintainer in [Discussions](https://github.com/kangwoo/aimon-memory/discussions) — without describing
+the vulnerability there.
 
 Please include:
 

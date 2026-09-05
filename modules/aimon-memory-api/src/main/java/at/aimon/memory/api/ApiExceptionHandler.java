@@ -132,7 +132,8 @@ public class ApiExceptionHandler {
     public ResponseEntity<Dtos.ErrorResponse> memory(MemoryException e) {
         HttpStatus status = switch (e.code()) {
             case "bad_key", "bad_level", "bad_actor", "bad_event", "bad_scope", "bad_reasoning_level",
-                    "bad_response_format", "batch_too_large", "bad_sync_state", "bad_draft", "bad_lifetime" ->
+                    "bad_response_format", "batch_too_large", "bad_sync_state", "bad_draft", "bad_lifetime",
+                    "bad_expiry" ->
                 HttpStatus.BAD_REQUEST;
             case "llm_not_configured", "missing_config" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "fixture_miss" -> HttpStatus.SERVICE_UNAVAILABLE;

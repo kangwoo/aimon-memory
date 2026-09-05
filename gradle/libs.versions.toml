@@ -39,15 +39,19 @@ javaCompat      = "17"
 aimonCore       = "0.2.4"
 
 # The contract suite's version, deliberately separate from the one above because the artifact is in a different
-# state. `at.aimon.core:aimon-memory-testkit` is on no remote repository at all — it first ships in aimon-core
-# 0.3.0, and the only copy that exists anywhere is whatever `publishToMavenLocal` left in a ~/.m2.
+# state. `at.aimon.core:aimon-memory-testkit` is published only as `0.3.0-SNAPSHOT`, on Central's snapshot
+# repository — which settings.gradle.kts and the root build.gradle.kts point at for this one coordinate, so it
+# resolves on a fresh clone and on CI. What it is not is *released*: a snapshot can be replaced or rotated away
+# under the same version string, and nothing here would notice until a build failed.
 #
-# Kept apart so that fact reaches exactly one place: the opt-in contract source set in aimon-memory-client, which
-# skips itself when the coordinate does not resolve. Held as one version — the way it was until this line was
-# split out — an unpublished artifact decides whether the whole repository compiles, and it decided no.
-# Reproduce it from an aimon-core checkout with:
-#   ./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
-# Collapse the two back into one when 0.3.0 is on Central and `aimonCore` can name it.
+# That is why it stays apart from `aimonCore`, which names a release. The separation keeps the unreleased
+# coordinate reachable from exactly one place — the opt-in contract source set in aimon-memory-client, which
+# skips itself when it does not resolve — and off this module's compile classpath, which is what gets published.
+# Held as one version, the way it was until this line was split out, an unreleased artifact decides whether the
+# whole repository compiles; it decided no, on every machine that had not run `publishToMavenLocal`.
+#
+# Collapse the two back into one when aimon-core 0.3.0 is *released* to Central and `aimonCore` can name it.
+# The snapshot repository blocks in settings.gradle.kts and build.gradle.kts come out in the same change.
 aimonTestkit    = "0.3.0-SNAPSHOT"
 
 [libraries]

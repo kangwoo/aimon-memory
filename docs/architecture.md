@@ -165,26 +165,58 @@ flowchart TB
 하나가 들어오면 빌드가 깨진다.
 
 ```
-aimon-memory-core      no dependencies. Domain types, the six SPIs, key encoding.
-aimon-memory-testkit   core. Golden fixtures, stubs, the Testcontainers base.
+aimon-memory-core      nothing. Domain types, six SPIs, key encoding.
+aimon-memory-testkit   core, text. Golden fixtures, stubs, the Testcontainers base.
 
 aimon-memory-text      core. Nori / Standard / bigram analyzers, normalisation, BM25, jtokkit.
-aimon-memory-embed     core, text. Batching, truncation, retry, order preservation.
+aimon-memory-embed     core, text. Batching, truncation, retry, order preservation, the Embedder bean.
 aimon-memory-llm       core. Provider backends, structured output, tool loop, record/replay.
 aimon-memory-store     core, text. Flyway, repositories, pgvector, the filter compiler.
 
 aimon-memory-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
-aimon-memory-engine    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
+aimon-memory-engine    core, store, recall, llm, embed, text. Deriver, summariser, context,
+                       dialectic, dreamer.
 
-aimon-memory-worker    engine, store.            [runnable]
-aimon-memory-api       recall, engine, store.    [runnable]
+aimon-memory-worker    core, engine, store.          [runnable]  (+ text, recall in tests)
+aimon-memory-api       core, recall, engine, store.  [runnable]
 
-aimon-memory-client    aimon-core only.          [the adapter, Java 17]
+aimon-memory-client    aimon-core, jackson.          [the adapter, Java 17]
 aimon-memory-bom       nothing. A java-platform pinning the published modules.
 ```
 
+**이 표는 `build.gradle.kts` 가 선언한 것이고, ArchUnit 이 강제하는 것과는 다르다.** 두 목록은 같은
+것을 말하지 않는다 — `ModuleDependencyTest` 의 `mayOnlyDependOn` 은 **상한**(허용 목록)이고, 각 모듈의
+`build.gradle.kts` 가 **실제 선언**이다. 상한이 더 넓은 자리가 있다: 규칙은 `worker` 와 `api` 에 `llm`
+과 `embed` 를 허용하지만 둘 다 선언하지 않고, `recall` 은 오래 `embed` 를 허용받고도 쓰지 않다가
+`RecallConfiguration` 이 생기면서 비로소 선언했다. 상한을 읽고 의존이 있다고 결론짓지 말 것 — 이 문서가
+오래 틀려 있던 방식이 그것이다.
+
+조립 방향도 같은 규칙 아래 있다. ArchUnit 은 import 만 보므로 **스프링 배선의 방향은 보지 못한다.**
+`recall` 이 자기 빈을 스캔하지 않고 `Embedder` 를 `engine` 에서 받던 동안 컴파일 그래프는 깨끗했고
+규칙도 통과했다. 그래서 규칙이 아니라 테스트가 그 자리를 지킨다 — `RecallConfigurationTest` 는 recall 을
+**engine 없이** 조립해 보이고, 그 모듈의 테스트 소스셋에 있으므로 engine 에서 빈을 찾아 우연히 통과할
+수 없다.
+
 계층이 하는 일은 세 트랙이 서로의 코드가 아니라 서로의 스텁을 상대로 만들 수 있게 하는 것이다. 편의를
 위한 상향 import 하나가 들어오는 순간 무너지고, 그다음 하나는 정당화하기 쉬워진다.
+
+**여섯 SPI 는 이제 전부 소비된다.** `Analyzer`·`Embedder`·`LlmClient` 는 계속 그랬고,
+`ConclusionStore`·`EntityStore`·`EventLog` 는 구현만 있고 부르는 곳이 없었다 — 상위 모듈은 전부
+`ConclusionRepository` 같은 구상 클래스를 직접 주입받았다. 그동안 이 셋이 뒷받침하던 주장("저장소를
+갈아 끼울 수 있다")은 참이 아니었고, 인터페이스가 다섯 개짜리로 작았던 것이 그럴듯해 보인 이유였다.
+
+지금 규칙은 한 줄이다 — **`aimon-memory-store` 밖에서 호출되는 메서드가 SPI 에 있다.** 그래서
+`ConclusionStore` 는 16개, `EntityStore` 는 11개다. 그 모듈의 테스트만 부르는 것(`archiveCandidates`,
+`entityIdsFor`)과 아무도 안 부르는 것(`premisesOf`, `findById`)은 구상 클래스에 남았다. 다음 백엔드에
+"우리 테스트가 쓰던 메서드"를 구현하라고 요구할 이유가 없기 때문이다.
+
+**어디까지 참인지도 적어 둔다.** 결론·엔티티·감사 로그는 SPI 를 구현하면 갈아 끼울 수 있다. 나머지 아홉
+리포지토리(`queue`, `message`, `session`, `peer`, `workspace`, `session_peer`, `dream`, `peer_card`,
+`collection`)는 여전히 구상 타입으로 주입된다. `SpiSurfaceTest` 가 그 아홉을 이름으로 적어 두고, 봉인된
+셋을 구상 타입으로 되돌리면 빌드를 깬다. 아홉을 마저 봉인할지는 결정 사항이지 누락이 아니다 —
+`QueueRepository` 의 클레임은 부분 유니크 인덱스에 대한 insert 이고
+([concepts §12](concepts.md#12-큐와-work-unit)), 그런 것 위의 인터페이스는 추상이 아니라 구현의 두 번째
+서술이 된다. 이 절이 방금 벗어난 상태가 그것이다.
 
 `aimon-memory-engine` 이 티어 그 자체다 — deriver, dialectic, dreamer, fan-out, 수집. 모듈 이름도
 패키지 이름도 제품 이름을 되풀이하지 않도록 `memory` 가 아니라 `engine` 이다.
@@ -329,10 +361,19 @@ ADR 은 **명세에서 벗어난 자리**만 기록한다. 벗어나지 않은 �
 ### 관문
 
 ```
-406  tests, all green
-165  of them need no database (`checkAll`)
-241  of them do (`integrationTest`)
+531  tests, all green
+254  need no database        (`test`)          ┐
+ 21  aimon-core's suite      (`contractTest`)  ┘ the fast gate, `checkAll`
+256  need Postgres           (`integrationTest`)
 ```
+
+`contractTest` 는 이제 셋 중 하나로 세어 둔다. aimon-core 의 `PeerMemory` 계약 스위트 21개이고, 그
+아티팩트가 Central 스냅샷에서 풀리게 되면서 CI 에서도 상시로 돈다 — 예전처럼 로컬 publish 를 한 기계에서만
+도는 것이 아니다. 자기 소스셋에 있는 이유는 그것이 **릴리스가 아닌 스냅샷**이기 때문이고, 그 이유가
+사라지는 시점은 aimon-core 0.3.0 릴리스다.
+
+`integrationTest` 의 256개 중 하나(`LoadTest`)는 `-Daimon.memory.load=true` 로만 돈다. 관문이 아니라
+측정이라서 그렇고, 스킵으로 세어져 있다.
 
 | 계층 | 방법 | 관문 |
 |---|---|---|
@@ -341,7 +382,11 @@ ADR 은 **명세에서 벗어난 자리**만 기록한다. 벗어나지 않은 �
 | 정규화 | Java 와 SQL 을 나란히 | 문자 단위로 일치 |
 | LLM 경로 | record/replay | CI 는 replay 전용, 미스는 실패 |
 | 인가 | 라우트 allowlist | 정책 항목이 없는 라우트는 빌드를 깬다 |
-| 아키텍처 | ArchUnit | 의존성은 한 방향 |
+| 아키텍처 | ArchUnit | 의존성은 한 방향. 검사 대상 모듈의 클래스가 태스크 입력이라 낡은 바이트코드를 보지 않는다 |
+| 저장소 경계 | ArchUnit (`SpiSurfaceTest`) | 봉인된 셋은 구상 타입으로 못 부른다. 아직 아닌 아홉은 이름으로 적혀 있다 |
+| 조립 방향 | `RecallConfigurationTest` | recall 이 engine 없이 조립된다. 스프링 배선은 ArchUnit 이 못 보는 자리다 |
+| 제공자 이름 | 기동 시 검증 | 모르는 provider 이름은 뜨지 않는다. 조용한 폴백이 아니다 |
+| 클라이언트 계약 | `OpenApiContractTest` | 어댑터가 읽고 쓰는 필드가 `docs/openapi.json` 에 있다 |
 | 인덱스 사용 | seqscan 끈 `EXPLAIN` | 모든 인덱스가 실제 질의로 닿는다 |
 | 순위 품질 | 베이스라인 대비 nDCG / MRR | 질의별로도 총합으로도 퇴행 금지 |
 | 부하 | 동시 읽기·쓰기 | 오류 0건, 경합 아래에서도 빈틈 없는 시퀀스 |

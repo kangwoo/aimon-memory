@@ -8,7 +8,7 @@
 
 As the documentation grew, the architecture description scattered.
 
-The README had reached 385 lines and was doing six jobs — product pitch, how to run it, the module
+The README had reached 362 lines and was doing six jobs — product pitch, how to run it, the module
 graph, design decisions, the test and evaluation gates, and the list of what is not done. The last
 four of those are architecture description, not work for a front page.
 
@@ -77,7 +77,7 @@ saying of itself that it is not normative is what pays for that.
 **New facts have a place to go.** That, rather than completeness, is why arc42 is worth using: with
 twelve named slots there is an answer to "where does this go".
 
-**The README went from 385 lines to under half that.** The front page does a front page's job again.
+**The README went from 362 lines to 244.** The front page does a front page's job again.
 
 **Three costs.**
 

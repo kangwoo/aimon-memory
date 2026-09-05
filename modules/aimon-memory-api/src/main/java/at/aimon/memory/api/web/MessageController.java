@@ -126,7 +126,7 @@ public class MessageController {
             @RequestParam(defaultValue = "4000") int tokens, @RequestParam(required = false) String target,
             @RequestParam(required = false) String perspective) {
 
-        var result = context.context(workspace, session, tokens);
+        var result = context.context(workspace, session, Bounds.contextTokens(tokens));
         return new Dtos.ContextResponse(result.summary(),
                 result.messages().stream().map(Dtos.MessageResponse::of).toList(), result.messagesStartSeq(),
                 result.summaryTokens(), result.messageTokens(), result.tokenBudget(),

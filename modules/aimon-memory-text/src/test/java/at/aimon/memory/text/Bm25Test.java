@@ -7,10 +7,11 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import at.aimon.memory.core.model.CorpusStats;
+
 class Bm25Test {
 
-    private static final Bm25.CorpusStats STATS = new Bm25.CorpusStats(1000, 10.0,
-            Map.of("서울", 50L, "강남", 20L, "the", 900L));
+    private static final CorpusStats STATS = new CorpusStats(1000, 10.0, Map.of("서울", 50L, "강남", 20L, "the", 900L));
 
     @Test
     void rarerTermsContributeMore() {
@@ -35,7 +36,7 @@ class Bm25Test {
         assertThat(Bm25.score(List.of("부산"), List.of("서울", "강남"), STATS)).isZero();
         assertThat(Bm25.score(List.of(), List.of("서울"), STATS)).isZero();
         assertThat(Bm25.score(List.of("서울"), List.of(), STATS)).isZero();
-        assertThat(Bm25.score(List.of("서울"), List.of("서울"), Bm25.CorpusStats.empty())).isZero();
+        assertThat(Bm25.score(List.of("서울"), List.of("서울"), CorpusStats.empty())).isZero();
     }
 
     @Test

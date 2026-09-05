@@ -10,6 +10,7 @@ import at.aimon.memory.core.model.Page;
 import at.aimon.memory.core.model.Session;
 import at.aimon.memory.store.Jsonb;
 import at.aimon.memory.store.RowMappers;
+import at.aimon.memory.store.StoreException;
 import at.aimon.memory.store.WorkspaceSettingsService;
 
 @Repository
@@ -29,7 +30,11 @@ public class SessionRepository {
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT (workspace_name, name) DO NOTHING
                 """).params(workspace, name, Jsonb.of(metadata), Jsonb.of(configuration)).update();
-        return find(workspace, name).orElseThrow();
+        // Named, not bare — the same reason as EntityRepository.upsert. A NoSuchElementException with
+        // no message here is a 500 on the ingest path and, in the worker, five retries and a
+        // quarantined batch that never says which session went missing.
+        return find(workspace, name).orElseThrow(() -> new StoreException("session '" + name + "' in workspace "
+                + workspace + " was neither created nor found; it was removed between the insert and the read"));
     }
 
     public Optional<Session> find(String workspace, String name) {

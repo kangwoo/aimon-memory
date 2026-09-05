@@ -79,4 +79,50 @@ class BoundsTest extends ApiTestBase {
         assertThat(Bounds.history(Integer.MAX_VALUE)).isEqualTo(Bounds.MAX_HISTORY);
         assertThat(Bounds.history(0)).isEqualTo(100);
     }
+
+    /**
+     * The Tier 0 budget is capped like every other number on this surface.
+     *
+     * <p>It was the one that was not. The budget is what decides how many messages {@code context()}
+     * keeps, so an unbounded budget is an unbounded response: {@code ?tokens=2147483647} returned every
+     * row {@code MAX_WINDOW} allowed, in full, while the neighbouring paging routes stop at two
+     * hundred.
+     */
+    @Test
+    void theContextTokenBudgetIsCapped() {
+        assertThat(Bounds.contextTokens(Integer.MAX_VALUE)).isEqualTo(Bounds.MAX_CONTEXT_TOKENS);
+        assertThat(Bounds.contextTokens(2_000)).isEqualTo(2_000);
+        // Zero and below fall back to the default rather than clamping to zero, which would have
+        // returned a single message and read as an empty session.
+        assertThat(Bounds.contextTokens(0)).isEqualTo(4_000);
+        assertThat(Bounds.contextTokens(-1)).isEqualTo(4_000);
+    }
+
+    /**
+     * A single message is bounded, not just the batch.
+     *
+     * <p>The two multiply: a hundred messages per request was capped from the start and the size of
+     * each was not, so neither the request nor the {@code /context} reply that later returns those
+     * messages had an upper bound. A 400 here is the same answer the batch cap already gives.
+     */
+    @Test
+    void oneOverlongMessageIsRejected() throws Exception {
+        String tooLong = "a".repeat(at.aimon.memory.api.dto.Requests.MAX_CONTENT_CHARS + 1);
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/messages").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"messages\":[{\"peer\":\"a\",\"content\":\"" + tooLong + "\"}]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("bad_request"));
+    }
+
+    /** And one exactly at the cap is not — the limit is inclusive, as @Size(max) is. */
+    @Test
+    void aMessageExactlyAtTheCapIsAccepted() throws Exception {
+        String atTheLimit = "a".repeat(at.aimon.memory.api.dto.Requests.MAX_CONTENT_CHARS);
+
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/messages").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"messages\":[{\"peer\":\"a\",\"content\":\"" + atTheLimit + "\"}]}"))
+                .andExpect(status().isOk());
+    }
 }

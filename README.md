@@ -59,16 +59,12 @@ Tier 2 는 Tier 1 이 답할 수 없는 질문 — 열거, 모순, 서사가 필
 
 새로 클론해도 빌드되고 모든 관문을 통과한다. `gradle/libs.versions.toml` 의 `aimonCore` 는 Central 에
 올라와 있는 릴리스 `0.2.4` 라서, `git clone` 에서 `checkAll` 까지 가는 길 어디에서도 한 기계에만 있는
-아티팩트에 손을 뻗지 않는다. 예외가 하나 있는데, 빌드를 깨뜨리는 대신 스스로 건너뛴다.
-`:aimon-memory-client:contractTest` 는 `at.aimon.core:aimon-memory-testkit` 을 상속하는데, 이
-아티팩트는 aimon-core 0.3.0 이 나오기 전까지 어느 원격 저장소에도 없다. 그래서 `aimonTestkit` 으로
-따로 고정해 `mavenLocal()` 로 풀고, 건너뛸 때는 이유를 이름으로 짚어 준다. 이 계층을 돌리려면 먼저
-아티팩트를 만들어야 한다.
+아티팩트에 손을 뻗지 않는다.
 
-```sh
-# aimon-core 체크아웃에서
-./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
-```
+계약 계층도 마찬가지다. `:aimon-memory-client:contractTest` 는 `at.aimon.core:aimon-memory-testkit`
+을 상속하는데, 이 아티팩트는 aimon-core 0.3.0 에 처음 담겨 나가므로 아직 릴리스가 없다. 대신
+Central 의 스냅샷 저장소에 올라가 있고, 빌드가 그 좌표 하나만 거기서 풀도록 열어 뒀다. 그래서 이
+계층도 클론한 다음 바로 돈다 — 손으로 publish 할 것이 없다.
 
 좌표를 왜 둘로 갈랐는지, 그리고 그 스위트를 처음 돌렸을 때 무엇이 나왔는지는
 [ADR 0007](docs/adr/0007-aimon-core-boundary.md) 에 있다.
@@ -139,6 +135,7 @@ curl -s localhost:8080/v1/workspaces/demo/recall \
 필요한 토큰 스코프까지 들어 있다. 브라우저로 훑고 싶으면 아무 Swagger UI 에나 저 파일을 물리면 된다.
 실행 중인 서비스에서 받고 싶으면 `AIMON_MEMORY_OPENAPI=true` 로 띄우면 `/v3/api-docs` 가 열린다 —
 기본값은 꺼짐이고, 인증 인터셉터가 `/v1/**` 만 덮기 때문이다.
+
 ## 갖다 쓰기
 
 **아직 Maven Central 에 올라간 아티팩트가 없다.** `VERSION_NAME` 은 `0.1.0-SNAPSHOT` 이고, 릴리스는

@@ -53,6 +53,57 @@ They differ in how they should be treated:
 The worker pool is small on purpose. A work unit holds a connection only around its queries, never
 across the model call, so concurrency is bounded by `aimon.memory.worker.concurrency` rather than by the pool.
 
+### Environment variables
+
+Everything the two processes read, with the defaults taken from `application.yml`. The defaults line
+up with the local `docker compose`, so nothing has to be set during development — **what a deployment
+actually has to supply is the first four below plus `AIMON_MEMORY_JWT_SECRET`.**
+
+| Variable | API default | Worker default | What it is |
+|---|---|---|---|
+| `AIMON_MEMORY_DB_URL` | `jdbc:postgresql://localhost:5432/aimon_memory` | same | JDBC URL |
+| `AIMON_MEMORY_DB_USER` | `aimon_memory` | same | database user |
+| `AIMON_MEMORY_DB_PASSWORD` | `aimon_memory` | same | password; keeping the default against a remote database fails startup (below) |
+| `AIMON_MEMORY_JWT_SECRET` | **none** | — | API only, required. See [Secrets](#secrets) |
+| `AIMON_MEMORY_DB_POOL` | `20` | `10` | Hikari maximum pool size — the basis for the table above |
+| `AIMON_MEMORY_PORT` | `8080` | — | service port. **Publish this one** |
+| `AIMON_MEMORY_MANAGEMENT_PORT` | `9090` | `9091` | actuator. **Do not publish** |
+| `AIMON_MEMORY_WORKER_CONCURRENCY` | — | `4` | work units in flight |
+| `AIMON_MEMORY_EMBED_DIMENSIONS` | `1536` | same | vector width; also a Flyway placeholder |
+| `AIMON_MEMORY_EMBED_PROVIDER` | `hashing` | same | `openai` or `hashing`; anything else fails startup |
+| `AIMON_MEMORY_LLM_PROVIDER` | `none` | same | `openai` · `anthropic` · `none`; anything else fails startup |
+| `AIMON_MEMORY_LLM_FALLBACK` | `none` | same | used when the first choice fails; same set of names |
+| `AIMON_MEMORY_OPENAI_MODEL` | `gpt-4.1-mini` | same | |
+| `AIMON_MEMORY_ANTHROPIC_MODEL` | `claude-opus-5` | same | |
+| `AIMON_MEMORY_NORI_USER_DICT` | none | same | path to a Korean user dictionary |
+| `AIMON_MEMORY_OPENAPI` | `false` | — | `/v3/api-docs`. No reason to enable it in production |
+| `AIMON_MEMORY_LOG_LEVEL` | `INFO` | same | the `at.aimon.memory` logger only |
+
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are read under those names, without the prefix. Two families
+are deliberately absent here: `AIMON_MEMORY_LLM_MODE` is the test harness's record/replay switch, and
+`AIMON_MEMORY_BASE_URL` · `_MANAGEMENT_URL` · `_WORKER_URL` · `_SMOKE_WORKSPACE` · `_FIXTURE_DIR`
+belong to `scripts/smoke.sh`.
+
+**An unknown provider name stops startup.** `AIMON_MEMORY_LLM_PROVIDER=openal` used to be treated as
+`none`, so the deployment came up, reported healthy, and answered every derivation and dialectic with
+`llm_not_configured` — a message naming the setting the operator *did* set, which made it worse. It
+now fails at startup as `unknown_llm_provider`. Only `none` and the empty string count as "off". The
+embedder behaves the same way (`unknown_embed_provider`), and knows exactly two names, `openai` and
+`hashing` — falling back to `hashing` quietly would score lexical overlap and nothing else in
+production, which surfaces as bad ranking rather than as an error.
+
+The `AIMON_MEMORY_DB_PASSWORD` default, `aimon_memory`, is the compose stack's password and is
+published in this repository — the same kind of value as a signing key. It survives because the local
+flow the README documents (`docker compose up`, then `java -jar`) is built around it, and
+`DatabaseCredentialCheck` pays for that: **startup fails when the JDBC URL names a host that is not
+this machine and the password is still the default** (`default_db_password`). Local hosts
+(`localhost`, `127.0.0.1`, `::1`) pass as before.
+
+`AIMON_MEMORY_EMBED_DIMENSIONS` **must match across both processes.** The schema's vector columns are
+created at that width, and a mismatch fails startup naming both numbers. Changing it on a database
+that already holds vectors is a re-embedding, not a type change — see `V9` under
+[Migrations](#migrations) below.
+
 ## Migrations
 
 Flyway runs at startup on both processes. Concurrent starts are safe — Flyway takes a lock — but the

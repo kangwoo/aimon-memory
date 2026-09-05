@@ -168,27 +168,64 @@ Dependencies only ever point downwards, and `ModuleDependencyTest` (ArchUnit) en
 upward import breaks the build.
 
 ```
-aimon-memory-core      no dependencies. Domain types, the six SPIs, key encoding.
-aimon-memory-testkit   core. Golden fixtures, stubs, the Testcontainers base.
+aimon-memory-core      nothing. Domain types, six SPIs, key encoding.
+aimon-memory-testkit   core, text. Golden fixtures, stubs, the Testcontainers base.
 
 aimon-memory-text      core. Nori / Standard / bigram analyzers, normalisation, BM25, jtokkit.
-aimon-memory-embed     core, text. Batching, truncation, retry, order preservation.
+aimon-memory-embed     core, text. Batching, truncation, retry, order preservation, the Embedder bean.
 aimon-memory-llm       core. Provider backends, structured output, tool loop, record/replay.
 aimon-memory-store     core, text. Flyway, repositories, pgvector, the filter compiler.
 
 aimon-memory-recall    core, store, text, embed. Six signals, fusion, explain, provenance.
-aimon-memory-engine    + llm, recall. Deriver, summariser, context, dialectic, dreamer.
+aimon-memory-engine    core, store, recall, llm, embed, text. Deriver, summariser, context,
+                       dialectic, dreamer.
 
-aimon-memory-worker    engine, store.            [runnable]
-aimon-memory-api       recall, engine, store.    [runnable]
+aimon-memory-worker    core, engine, store.          [runnable]  (+ text, recall in tests)
+aimon-memory-api       core, recall, engine, store.  [runnable]
 
-aimon-memory-client    aimon-core only.          [the adapter, Java 17]
+aimon-memory-client    aimon-core, jackson.          [the adapter, Java 17]
 aimon-memory-bom       nothing. A java-platform pinning the published modules.
 ```
+
+**This table is what `build.gradle.kts` declares, which is not what ArchUnit enforces.** The two
+lists do not say the same thing: `mayOnlyDependOn` in `ModuleDependencyTest` is a **ceiling** — an
+allowlist — and each module's `build.gradle.kts` is the **actual declaration**. The ceiling is wider
+in places. The rule permits `llm` and `embed` to `worker` and `api`, and neither declares them;
+`recall` was permitted `embed` long before it used it, and only declared it when
+`RecallConfiguration` arrived. Do not read the ceiling as a dependency — that is how this document
+was wrong for so long.
+
+Assembly direction falls under the same caution. ArchUnit reads imports, so it **cannot see the
+direction of the Spring wiring**. While `recall` scanned none of its own beans and took its
+`Embedder` from `engine`, the compile graph was clean and the rule passed. A test holds that line
+instead: `RecallConfigurationTest` assembles Tier 1 **without the engine module**, and it lives in
+that module's own test source set, so it cannot pass by finding a bean in engine.
 
 What the layering does is let three tracks build against each other's stubs instead of each other's
 code. It degrades the moment one convenient upward import is added, at which point the next one is
 easy to justify.
+
+**All six SPIs are now consumed.** `Analyzer`, `Embedder` and `LlmClient` always were.
+`ConclusionStore`, `EntityStore` and `EventLog` were implemented and called by nobody — every module
+above the store injected the concrete `ConclusionRepository` and its siblings instead. For as long as
+that held, the claim those three underwrote — that the storage layer is replaceable — was false, and
+the interfaces being small (five methods) is what made it look plausible.
+
+The rule now is one line: **a method is on an SPI exactly when it is called from outside
+`aimon-memory-store`.** That puts 16 methods on `ConclusionStore` and 11 on `EntityStore`. What only
+that module's own tests call (`archiveCandidates`, `entityIdsFor`) and what nothing calls at all
+(`premisesOf`, `findById`) stayed on the concrete class: there is no reason to oblige the next
+backend to implement the methods this one's tests happen to use.
+
+**How far it reaches is written down too.** Conclusions, entities and the audit log can be backed by
+another implementation. The other nine repositories — `queue`, `message`, `session`, `peer`,
+`workspace`, `session_peer`, `dream`, `peer_card`, `collection` — are still injected by concrete
+type. `SpiSurfaceTest` names those nine and fails if a sealed one is reached concretely again.
+Whether to seal them is a decision rather than an omission: `QueueRepository`'s claim is an insert
+against a partial unique index ([concepts §12](concepts.en.md#12-the-queue-and-work-units)), and an
+interface over that would be a second description of one implementation — the state this section has
+just left.
+
 
 `aimon-memory-engine` is the tiers themselves — deriver, dialectic, dreamer, fan-out, ingestion. Both
 the module and the package are named `engine` rather than `memory` so that neither repeats the
@@ -337,10 +374,20 @@ a memory system worth using
 ### Gates
 
 ```
-406  tests, all green
-165  of them need no database (`checkAll`)
-241  of them do (`integrationTest`)
+531  tests, all green
+254  need no database        (`test`)          ┐
+ 21  aimon-core's suite      (`contractTest`)  ┘ the fast gate, `checkAll`
+256  need Postgres           (`integrationTest`)
 ```
+
+`contractTest` is counted as one of the three now. It is aimon-core's 21-case `PeerMemory` contract
+suite, and it runs on CI as well as locally since that artifact became resolvable from Central's
+snapshot repository — where before it ran only on a machine that had published it locally. It stays
+in a source set of its own because the artifact is a **snapshot rather than a release**, and that
+reason expires when aimon-core 0.3.0 ships.
+
+One of the 256 (`LoadTest`) runs only under `-Daimon.memory.load=true`. It is a measurement rather
+than a gate, and is counted as skipped.
 
 | Layer | Method | Gate |
 |---|---|---|
@@ -349,7 +396,11 @@ a memory system worth using
 | Normalisation | Java beside SQL | Character-for-character agreement |
 | LLM paths | record/replay | CI is replay-only; a miss fails |
 | Authorisation | Route allowlist | A route with no policy entry breaks the build |
-| Architecture | ArchUnit | Dependencies point one way |
+| Architecture | ArchUnit | Dependencies point one way; the subject modules' classes are task inputs, so it never reads stale bytecode |
+| Storage seam | ArchUnit (`SpiSurfaceTest`) | The sealed three cannot be reached by concrete type; the nine that are not are named |
+| Assembly direction | `RecallConfigurationTest` | Recall assembles without engine — the place ArchUnit cannot look |
+| Provider names | Startup validation | An unknown provider name refuses to start; no quiet fallback |
+| Client contract | `OpenApiContractTest` | Every field the adapter reads or writes is in `docs/openapi.json` |
 | Index usage | `EXPLAIN` with seqscan off | Every index is reached by a real query |
 | Ranking quality | nDCG / MRR against a baseline | No regression, per query and in aggregate |
 | Load | Concurrent reads and writes | Zero errors, a gap-free sequence under contention |

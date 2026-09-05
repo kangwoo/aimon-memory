@@ -17,6 +17,7 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.ConclusionLevel;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.LlmClient;
 import at.aimon.memory.core.spi.llm.LlmMessage;
 import at.aimon.memory.core.spi.llm.LlmRequest;
@@ -24,7 +25,6 @@ import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.engine.derive.ConclusionWriter;
 import at.aimon.memory.engine.prompt.Prompts;
 import at.aimon.memory.store.repo.CollectionRepository;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.DreamRepository;
 
 /**
@@ -65,14 +65,14 @@ public class DreamerService {
             """;
 
     private final LlmClient llm;
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final ConclusionWriter writer;
     private final DreamRepository dreams;
     private final CollectionRepository collections;
     private final Clock clock;
 
-    public DreamerService(LlmClient llm, ConclusionRepository conclusions, ConclusionWriter writer,
-            DreamRepository dreams, CollectionRepository collections, Clock clock) {
+    public DreamerService(LlmClient llm, ConclusionStore conclusions, ConclusionWriter writer, DreamRepository dreams,
+            CollectionRepository collections, Clock clock) {
         this.llm = llm;
         this.conclusions = conclusions;
         this.writer = writer;

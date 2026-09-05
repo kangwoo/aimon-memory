@@ -9,16 +9,17 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import at.aimon.memory.core.model.Conclusion;
+import at.aimon.memory.core.model.CorpusStats;
 import at.aimon.memory.core.model.EntityMatch;
 import at.aimon.memory.core.model.ScoredConclusion;
 import at.aimon.memory.core.spi.Analyzer;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
+import at.aimon.memory.core.spi.EntityStore;
 import at.aimon.memory.recall.signal.EntityBoost;
 import at.aimon.memory.store.WorkspaceSettings;
 import at.aimon.memory.store.WorkspaceSettingsService;
-import at.aimon.memory.store.repo.ConclusionRepository;
-import at.aimon.memory.store.repo.EntityRepository;
 import at.aimon.memory.text.Bm25;
 
 /**
@@ -36,13 +37,13 @@ import at.aimon.memory.text.Bm25;
 @Service
 public class RecallService {
 
-    private final ConclusionRepository conclusions;
-    private final EntityRepository entities;
+    private final ConclusionStore conclusions;
+    private final EntityStore entities;
     private final WorkspaceSettingsService settings;
     private final Embedder embedder;
     private final Clock clock;
 
-    public RecallService(ConclusionRepository conclusions, EntityRepository entities, WorkspaceSettingsService settings,
+    public RecallService(ConclusionStore conclusions, EntityStore entities, WorkspaceSettingsService settings,
             Embedder embedder, Clock clock) {
         this.conclusions = conclusions;
         this.entities = entities;
@@ -112,7 +113,7 @@ public class RecallService {
         if (missing.isEmpty() || queryTerms.isEmpty()) {
             return;
         }
-        Bm25.CorpusStats stats = conclusions.corpusStats(request.pair(), queryTerms);
+        CorpusStats stats = conclusions.corpusStats(request.pair(), queryTerms);
         for (String id : missing) {
             Conclusion candidate = candidates.get(id);
             keyword.put(id, Bm25.score(queryTerms, tokenize(candidate.contentAnalyzed()), stats));

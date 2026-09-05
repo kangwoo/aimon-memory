@@ -25,11 +25,11 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.EventType;
+import at.aimon.memory.core.spi.ConclusionStore;
+import at.aimon.memory.core.spi.EventLog;
 import at.aimon.memory.engine.derive.ConclusionWriter;
 import at.aimon.memory.engine.entity.EntityPipeline;
 import at.aimon.memory.recall.ProvenanceService;
-import at.aimon.memory.store.repo.ConclusionRepository;
-import at.aimon.memory.store.repo.EventLogRepository;
 import at.aimon.memory.store.repo.PeerRepository;
 import at.aimon.memory.store.repo.SessionRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,12 +40,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "conclusions", description = "What is remembered: list, inject, delete, audit, reasoning chain.")
 public class ConclusionController {
 
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final PeerRepository peers;
     private final SessionRepository sessions;
     private final ConclusionWriter writer;
     private final EntityPipeline entities;
-    private final EventLogRepository events;
+    private final EventLog events;
     private final ProvenanceService provenance;
     private final PairScope pairs;
 
@@ -53,8 +53,8 @@ public class ConclusionController {
     // holder object to satisfy the count would hide which of them this class actually uses, which is the
     // thing the parameter list is good at saying.
     @SuppressWarnings("checkstyle:ParameterNumber")
-    public ConclusionController(ConclusionRepository conclusions, PeerRepository peers, SessionRepository sessions,
-            ConclusionWriter writer, EntityPipeline entities, EventLogRepository events, ProvenanceService provenance,
+    public ConclusionController(ConclusionStore conclusions, PeerRepository peers, SessionRepository sessions,
+            ConclusionWriter writer, EntityPipeline entities, EventLog events, ProvenanceService provenance,
             PairScope pairs) {
         this.conclusions = conclusions;
         this.peers = peers;
@@ -100,11 +100,36 @@ public class ConclusionController {
                 List.of(new ConclusionWriter.Incoming(body.content(),
                         body.entities() == null ? List.of() : body.entities(),
                         at.aimon.memory.core.model.ConclusionLevel.EXPLICIT, null, List.of(), List.of(),
-                        body.expiresAt() == null ? null : Instant.parse(body.expiresAt()))),
+                        expiryOf(body.expiresAt()))),
                 Actor.API);
         String id = result.outcomes().get(0).conclusionId();
         return conclusions.find(workspace, id).map(Dtos.ConclusionResponse::of)
                 .orElseThrow(() -> new NotFoundException("conclusion", id));
+    }
+
+    /**
+     * The caller's expiry, or a 400 saying why not.
+     *
+     * <p>{@link java.time.format.DateTimeParseException} has no entry in {@code ApiExceptionHandler},
+     * so a bare {@code Instant.parse} here reached the catch-all: {@code "expiresAt": "2026-09-05"} —
+     * a date with no time or offset, which is the first thing a caller writes — came back as 500 and
+     * was logged at ERROR, putting a client's typo into the error-rate metric that is supposed to
+     * reveal an outage. {@code ClientErrorStatusTest} exists for exactly that failure; this route was
+     * the one path into it that the test did not cover.
+     *
+     * <p>Strict rather than lenient. An expiry is a deletion date, and guessing which midnight in
+     * which zone {@code 2026-09-05} meant is not a guess to make silently on the caller's behalf.
+     */
+    private static Instant expiryOf(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new at.aimon.memory.core.MemoryException("bad_expiry",
+                    "expiresAt must be an ISO-8601 instant such as 2026-09-05T12:00:00Z, got '" + raw + "'");
+        }
     }
 
     /** Soft delete plus entity cleanup. The row stays; the audit log needs a subject to point at. */

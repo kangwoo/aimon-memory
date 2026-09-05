@@ -24,11 +24,13 @@ jobs:
   # fails here and nowhere else — which is exactly what happened while `aimonCore` was pinned to a
   # snapshot. Keep it that way: no step here may populate the local Maven repository.
   #
-  # One tier is knowingly not run. `:aimon-memory-client:contractTest` subclasses
-  # `at.aimon.core:aimon-memory-testkit`, which ships first in aimon-core 0.3.0 and is on no remote
-  # repository yet, so the source set skips itself here and says so in the log. A green run of this
-  # job is not evidence that aimon-core's contract suite passed; that has to be run by hand until
-  # the testkit is published, and CONTRIBUTING.md says so to anyone opening a pull request.
+  # `:aimon-memory-client:contractTest` runs here too, and that is recent. It subclasses
+  # `at.aimon.core:aimon-memory-testkit`, which ships first in aimon-core 0.3.0 and so has no release
+  # — but it is published to Central's snapshot repository, which a runner can read like any other.
+  # Before that it lived only in a `~/.m2`, so this job always skipped the tier and a green run said
+  # nothing about aimon-core's contract suite. It now does say something. The skip is still there for
+  # the case where the coordinate stops resolving, and it names itself in the log, so a green run
+  # that skipped is distinguishable from one that ran — read the log before trusting the tick.
   check:
     runs-on: ubuntu-latest
     steps:

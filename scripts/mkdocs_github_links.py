@@ -12,16 +12,20 @@ inside ``docs/`` are left completely alone, which keeps MkDocs' own link
 resolution -- and the ``.en.md`` translation mapping -- in charge of everything
 it should be in charge of.
 
-There are only a couple of them here today. The hook is carried anyway: it is the
+No built page escapes ``docs/`` today -- the links that do (``spec/README.md``
+reaching for ``../../gradle/libs.versions.toml``, say) sit on pages ``exclude_docs``
+keeps off the site, so they never reach this branch. It is carried anyway: it is the
 same file as aimon-core's, so a link that escapes ``docs/`` tomorrow is already
 handled rather than discovered as a broken build.
 
-There is a second, smaller class with the same shape: a link that stays inside
-``docs/`` but points at a directory ``exclude_docs`` keeps off the site. This
-repository excludes nothing today, and the branch below is a no-op when the key
-is absent -- but the list is read from ``exclude_docs`` rather than repeated
-here, so excluding a directory later is a one-line change in ``mkdocs.yml`` and
-this hook cannot fall out of step with it.
+There is a second class with the same shape, and here it is the one doing the work:
+a link that stays inside ``docs/`` but points at a directory ``exclude_docs`` keeps
+off the site. This repository excludes two, ``adr/`` and ``spec/``, and 80 links from
+the five built documents point into them -- architecture 46, README 12, concepts 12,
+the guide 6, the runbook 4. Every one of those is rewritten to a GitHub URL below.
+The list is read from ``exclude_docs`` rather than repeated here, so excluding another
+directory is a one-line change in ``mkdocs.yml`` and this hook cannot fall out of step
+with it.
 
 The hook does one more thing, for the same reason. Every document here opens with a
 hand-written language switcher -- ``**한국어** · [English](guide.en.md)`` -- because
@@ -29,8 +33,8 @@ GitHub has no switcher of its own and that line is the only way across. The site
 *does* have one, supplied by mkdocs-static-i18n, and the ``.en.md`` file it points
 at is not a page in the Korean build but the source of the ``/en/`` build. So on
 the site the line is both redundant and a broken link, and ``--strict`` counts it:
-fifteen warnings, one per document. It is dropped at render time and left alone in
-the sources.
+ten warnings, one per built page (five Korean, five English). It is dropped at
+render time and left alone in the sources.
 
 Registered from ``mkdocs.yml`` under ``hooks:``. No plugin dependency.
 """

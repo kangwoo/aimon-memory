@@ -12,8 +12,8 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.EntityRef;
 import at.aimon.memory.core.model.Message;
-import at.aimon.memory.store.repo.ConclusionRepository;
-import at.aimon.memory.store.repo.EntityRepository;
+import at.aimon.memory.core.spi.ConclusionStore;
+import at.aimon.memory.core.spi.EntityStore;
 import at.aimon.memory.store.repo.MessageRepository;
 
 /**
@@ -38,11 +38,11 @@ public class ProvenanceService {
     /** Depth cap on the premise walk. A cycle in source_ids should not become an infinite response. */
     private static final int MAX_DEPTH = 4;
 
-    private final EntityRepository entities;
-    private final ConclusionRepository conclusions;
+    private final EntityStore entities;
+    private final ConclusionStore conclusions;
     private final MessageRepository messages;
 
-    public ProvenanceService(EntityRepository entities, ConclusionRepository conclusions, MessageRepository messages) {
+    public ProvenanceService(EntityStore entities, ConclusionStore conclusions, MessageRepository messages) {
         this.entities = entities;
         this.conclusions = conclusions;
         this.messages = messages;
@@ -64,7 +64,7 @@ public class ProvenanceService {
     /** @return empty when the workspace has no entity by that name */
     public Optional<EntityProvenance> forEntity(PairKey pair, String entityName, int limit) {
         String workspace = pair.workspaceName();
-        Optional<EntityRef> entity = entities.findByNorm(workspace, EntityRepository.normalize(entityName));
+        Optional<EntityRef> entity = entities.findByName(workspace, entityName);
         if (entity.isEmpty()) {
             return Optional.empty();
         }

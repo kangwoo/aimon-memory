@@ -52,6 +52,53 @@ java -jar modules/aimon-memory-worker/build/libs/aimon-memory-worker-*.jar
 워커 풀이 작은 것은 의도다. work unit 은 자기 질의 주변에서만 커넥션을 쥐고 모델 호출 동안에는 놓기
 때문에, 동시성은 풀이 아니라 `aimon.memory.worker.concurrency` 가 정한다.
 
+### 환경변수
+
+두 프로세스가 읽는 것 전부다. 기본값은 `application.yml` 에서 그대로 가져왔다. 기본값이 로컬
+`docker compose` 와 맞아떨어지기 때문에 개발 중에는 아무것도 안 줘도 뜬다 — **배포에서 실제로
+넘겨야 하는 것은 아래 표의 위쪽 넷과 `AIMON_MEMORY_JWT_SECRET` 이다.**
+
+| 변수 | API 기본값 | Worker 기본값 | 무엇인가 |
+|---|---|---|---|
+| `AIMON_MEMORY_DB_URL` | `jdbc:postgresql://localhost:5432/aimon_memory` | 같음 | JDBC URL |
+| `AIMON_MEMORY_DB_USER` | `aimon_memory` | 같음 | 데이터베이스 사용자 |
+| `AIMON_MEMORY_DB_PASSWORD` | `aimon_memory` | 같음 | 비밀번호. 기본값을 원격 데이터베이스에 쓰면 기동이 실패한다 (아래) |
+| `AIMON_MEMORY_JWT_SECRET` | **없음** | — | API 전용, 필수. 아래 [비밀값](#비밀값) 참고 |
+| `AIMON_MEMORY_DB_POOL` | `20` | `10` | Hikari 최대 풀 크기. 위 표의 근거다 |
+| `AIMON_MEMORY_PORT` | `8080` | — | 서비스 포트. **공개한다** |
+| `AIMON_MEMORY_MANAGEMENT_PORT` | `9090` | `9091` | actuator. **공개하지 않는다** |
+| `AIMON_MEMORY_WORKER_CONCURRENCY` | — | `4` | 동시에 도는 work unit 수 |
+| `AIMON_MEMORY_EMBED_DIMENSIONS` | `1536` | 같음 | 벡터 폭. Flyway 플레이스홀더로도 들어간다 |
+| `AIMON_MEMORY_EMBED_PROVIDER` | `hashing` | 같음 | `openai` 또는 `hashing`. 그 밖의 값은 기동 실패 |
+| `AIMON_MEMORY_LLM_PROVIDER` | `none` | 같음 | `openai` · `anthropic` · `none`. 그 밖의 값은 기동 실패 |
+| `AIMON_MEMORY_LLM_FALLBACK` | `none` | 같음 | 1순위가 실패했을 때. 같은 이름 집합을 받는다 |
+| `AIMON_MEMORY_OPENAI_MODEL` | `gpt-4.1-mini` | 같음 | |
+| `AIMON_MEMORY_ANTHROPIC_MODEL` | `claude-opus-5` | 같음 | |
+| `AIMON_MEMORY_NORI_USER_DICT` | 없음 | 같음 | 한국어 사용자 사전 경로 |
+| `AIMON_MEMORY_OPENAPI` | `false` | — | `/v3/api-docs`. 운영에서 켤 이유가 없다 |
+| `AIMON_MEMORY_LOG_LEVEL` | `INFO` | 같음 | `at.aimon.memory` 로거만 |
+
+`OPENAI_API_KEY` 와 `ANTHROPIC_API_KEY` 는 접두사 없이 그 이름 그대로 읽는다. 두 개는 여기 없다 —
+`AIMON_MEMORY_LLM_MODE` 는 테스트 하네스의 record/replay 스위치이고, `AIMON_MEMORY_BASE_URL` ·
+`_MANAGEMENT_URL` · `_WORKER_URL` · `_SMOKE_WORKSPACE` · `_FIXTURE_DIR` 은 `scripts/smoke.sh` 것이다.
+
+**모르는 provider 이름은 기동을 멈춘다.** `AIMON_MEMORY_LLM_PROVIDER=openal` 은 예전에 `none` 으로
+취급돼서, 배포가 멀쩡히 뜨고 헬스도 초록인데 모든 도출과 dialectic 이 `llm_not_configured` 로 답했다 —
+운영자가 **설정한** 값을 이름으로 짚는 메시지라서 더 헷갈렸다. 이제 `unknown_llm_provider` 로 기동에서
+실패한다. `none` 과 빈 문자열만 "끄기"로 인정된다. 임베더도 같고(`unknown_embed_provider`), 아는 이름은
+`openai` 와 `hashing` 둘뿐이다 — 여기서 `hashing` 으로 조용히 물러나면 운영에서 어휘 중복만 채점하게
+되고, 그건 오류가 아니라 나쁜 순위로 나타난다.
+
+`AIMON_MEMORY_DB_PASSWORD` 의 기본값 `aimon_memory` 는 compose 스택의 비밀번호이고, 저장소에 공개돼
+있다는 점에서 서명 키와 같은 종류의 값이다. 남아 있는 이유는 README 가 안내하는 로컬 흐름
+(`docker compose up` 다음 `java -jar`)이 이 값에 맞춰져 있기 때문이고, 대신 `DatabaseCredentialCheck`
+가 그 대가를 막는다 — **JDBC URL 의 호스트가 이 기계가 아닌데 비밀번호가 아직 기본값이면 기동이
+실패한다**(`default_db_password`). 로컬(`localhost`·`127.0.0.1`·`::1`)은 그대로 통과한다.
+
+`AIMON_MEMORY_EMBED_DIMENSIONS` 는 두 프로세스에서 **같아야 한다.** 스키마의 벡터 폭이 이 값으로
+만들어지고, 어긋나면 두 숫자를 모두 짚으며 기동에 실패한다. 이미 벡터가 들어 있는 데이터베이스에서
+이 값을 바꾸는 것은 타입 변경이 아니라 재임베딩이다 — 아래 [마이그레이션](#마이그레이션) 의 `V9`.
+
 ## 마이그레이션
 
 Flyway 는 두 프로세스 모두에서 기동 시 돈다. 동시에 떠도 안전하지만 — Flyway 가 락을 잡는다 — 새

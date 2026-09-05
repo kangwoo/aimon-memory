@@ -121,12 +121,34 @@ public class WorkerLoop implements AutoCloseable {
                 if (!slots.tryAcquire()) {
                     return claimedAny;
                 }
-                if (!queue.claim(unit.workUnitKey(), properties.workerId(), properties.claimTtl())) {
-                    slots.release();
-                    continue;
+                // From the acquire to the hand-off, this method owns the permit, so it has to give it
+                // back itself if anything in between throws — runClaimed's finally only runs once the
+                // task has actually started.
+                //
+                // Both calls below can throw. claim is a JDBC insert, so a moment of pool exhaustion
+                // is enough; submit throws RejectedExecutionException once close() has shut the
+                // executor down. Neither was guarded, and the exception went to pollForever's catch,
+                // which logs and polls again — so each one burned a permit permanently. After
+                // `concurrency` of them tryAcquire never succeeds again: the loop keeps polling, the
+                // queue keeps filling, the process stays healthy and says nothing, and only a
+                // restart clears it.
+                //
+                // A claim whose submit was rejected is left to its TTL rather than released here.
+                // That path is reachable only from close(), where the process is going away anyway
+                // and the TTL is the mechanism that already covers a worker that stopped mid-unit.
+                boolean handedOff = false;
+                try {
+                    if (!queue.claim(unit.workUnitKey(), properties.workerId(), properties.claimTtl())) {
+                        continue;
+                    }
+                    claimedAny = true;
+                    workers.submit(() -> runClaimed(unit.workUnitKey()));
+                    handedOff = true;
+                } finally {
+                    if (!handedOff) {
+                        slots.release();
+                    }
                 }
-                claimedAny = true;
-                workers.submit(() -> runClaimed(unit.workUnitKey()));
             }
         }
         return claimedAny;
@@ -163,12 +185,31 @@ public class WorkerLoop implements AutoCloseable {
             queue.recordFailure(ids(items), e.getMessage());
             quarantineIfExhausted(items);
         } finally {
+            // The permit comes back first, before anything else in this block runs.
+            //
+            // It used to come back after `queue.release`, which is a JDBC DELETE — so the same moment
+            // of pool exhaustion that `pollOnce` now guards against lost a permit here instead, and
+            // lost it more often: `claim` runs once per poll, this runs once per completed work unit.
+            // Worse, it was silent twice over. The throw leaves `runClaimed` into the Runnable that
+            // `workers.submit` wrapped, where it lands in a Future nobody reads, so not even the
+            // "work unit failed" line above gets logged.
+            //
+            // Stated as "first" rather than "before the JDBC call" on purpose. Ordering it against one
+            // named statement is a rule the next edit can break by inserting a line above it; ordering
+            // it against the whole block is not.
+            //
+            // Nothing below needs the permit still held. The claim row outliving the permit by a few
+            // microseconds cannot cause a double run — the poll thread that takes this permit has to
+            // get past `queue.claim` for the unit, and the row is still there until the last line.
+            slots.release();
             if (heartbeat != null) {
                 heartbeat.cancel(false);
             }
-            queue.release(encodedKey, properties.workerId());
-            slots.release();
             sample.stop(meters.timer("aimon.memory.worker.unit"));
+            // Last, because it is the only statement here that can throw and the only one with a
+            // fallback of its own: a claim this fails to delete lapses at its TTL, which is the
+            // mechanism already covering a worker that died mid-unit.
+            queue.release(encodedKey, properties.workerId());
         }
     }
 

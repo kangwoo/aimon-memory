@@ -15,7 +15,8 @@
   띄우는 데 쓴다. 빠른 관문(`checkAll`)은 Docker 없이 돈다.
 
 의존성은 전부 Maven Central 에서 온다. `at.aimon.core:aimon-core:0.2.4` 도 마찬가지라, 클론한 다음
-바로 빌드된다. 예외는 하나뿐이고 아래 "계약 계층"에 적어 뒀다.
+바로 빌드된다. 좌표 하나만 릴리스가 아니라 Central 의 스냅샷 저장소에서 오는데, 그것도 원격이라
+따로 준비할 것은 없다. 사정은 아래 "계약 계층"에 적어 뒀다.
 
 ```sh
 git clone https://github.com/kangwoo/aimon-memory
@@ -30,9 +31,9 @@ docker compose up -d
 
 | 명령 | 무엇을 보는가 | Docker | 언제 돌리나 |
 |---|---|:-:|---|
-| `./gradlew checkAll` | 포맷·스타일·BOM, 데이터베이스가 필요 없는 165개 테스트 | 불필요 | 저장할 때마다 |
-| `./gradlew integrationTest` | Testcontainers 계층 241개 | 필요 | PR 을 올리기 전에 |
-| `./gradlew :aimon-memory-client:contractTest` | aimon-core 의 `PeerMemory` 계약 21개 | 불필요 | 아래 참조 |
+| `./gradlew checkAll` | 포맷·스타일·BOM, 데이터베이스가 필요 없는 254개 테스트, 그리고 계약 21개 | 불필요 | 저장할 때마다 |
+| `./gradlew integrationTest` | Testcontainers 계층 256개 | 필요 | PR 을 올리기 전에 |
+| `./gradlew :aimon-memory-client:contractTest` | aimon-core 의 `PeerMemory` 계약 21개 | 불필요 | `checkAll` 이 이미 부른다. 아래 참조 |
 | `./gradlew :aimon-memory-worker:loadTest` | 경합 상태의 동시 읽기·쓰기 | 필요 | 워커나 큐를 건드렸을 때 |
 
 `checkAll` 과 `integrationTest` 는 CI 의 두 잡이고 둘 다 관문이다. 나뉘어 있는 이유는 하나다 —
@@ -49,22 +50,24 @@ Flyway 마이그레이션 사슬은 목(mock)이 대신할 수 있는 것이 아
 ### 계약 계층
 
 `aimon-memory-client` 는 aimon-core 의 다섯 티어 `PeerMemory` 계약 스위트를 상속해서 돈다. 그 스위트는
-`at.aimon.core:aimon-memory-testkit` 으로 오는데, **이 아티팩트는 아직 어느 원격 저장소에도 없다.**
-aimon-core 0.3.0 이 처음 담아 나가고, 그때까지 존재하는 사본은 누군가 자기 `~/.m2` 에 publish 한 것뿐이다.
+`at.aimon.core:aimon-memory-testkit` 으로 오는데, 이 아티팩트에는 **아직 릴리스가 없다** — aimon-core
+0.3.0 이 처음 담아 나간다. 대신 Central 의 스냅샷 저장소에 올라가 있고, 빌드가 그 좌표 하나만 거기서
+풀도록 열어 뒀다. 그래서 **아무 기계에서나 돈다.** 새 클론에서도, CI 러너에서도.
 
-그래서 이 계층은 `src/test` 가 아니라 `src/contractTest` 라는 별도 소스셋에 있고, testkit 이 풀리지
-않으면 **스스로 건너뛴다.** 없는 기계에서는 건너뛴 이유를 한 줄 찍고 나머지 빌드는 그대로 간다.
+이 계층은 `src/test` 가 아니라 `src/contractTest` 라는 별도 소스셋에 있다. 릴리스가 아닌 좌표를
+`aimon-memory-client` 의 컴파일 클래스패스에 올리지 않으려는 것이고, testkit 이 어떤 이유로든 풀리지
+않으면 빌드를 깨뜨리는 대신 이유를 한 줄 찍고 **스스로 건너뛴다.**
 
-돌려 보려면 aimon-core 체크아웃에서 한 번 publish 하면 된다.
+`checkAll` 이 이 21개를 이름으로 부르므로 따로 칠 것은 없다. 그래도 이 계층만 돌리고 싶다면,
 
 ```sh
-# aimon-core 체크아웃에서
-./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
+./gradlew :aimon-memory-client:contractTest
 ```
 
-CI 에는 그 사본이 없으므로 CI 는 이 21개를 돌리지 않는다. **초록 CI 는 계약 스위트가 통과했다는 뜻이
-아니다.** 어댑터(`RemotePeerMemory`)나 그것이 부르는 엔드포인트의 의미를 바꿨다면, 손으로 한 번 돌려
-보고 그 사실을 PR 에 적어라.
+**초록 CI 는 이제 계약 스위트가 통과했다는 뜻이다.** 예전에는 아니었다 — testkit 이 `~/.m2` 에만
+있어서 CI 는 늘 이 계층을 건너뛰었고, 그래서 어댑터를 건드린 PR 은 손으로 돌린 결과를 적어야 했다.
+스냅샷이 Central 에 올라가면서 그 예외가 없어졌다. 다만 건너뛰기가 사라진 것은 아니다. 로그에
+건너뛰었다는 줄이 보이면 그 실행은 계약을 검증하지 않은 것이므로, 초록을 그대로 믿지 말 것.
 
 ---
 
@@ -134,7 +137,12 @@ replay 가 빗나갔다면 프롬프트가 바뀐 것이다. **다시 녹화하�
 - 다른 저장소와의 계약, 특히 어느 빌드에도 드러나지 않는 것 (ADR 0007)
 
 형식은 기존 것을 따른다. `docs/adr/NNNN-슬러그.md`, 첫 줄에 언어 배너, `# ADR NNNN — 제목`,
-`**Status:** accepted · YYYY-MM-DD`, 그리고 Context / Decision / Consequence. 번호는 이어서 매긴다.
+`**상태:** accepted · YYYY-MM-DD`, 그리고 맥락 / 결정 / 결과. 번호는 이어서 매긴다. 영어판
+`NNNN-슬러그.en.md` 는 같은 자리에 `**Status:**` 와 Context / Decision / Consequence 를 쓴다.
+
+결정이 뒤집히거나 그 안의 사실이 더는 참이 아니게 되면, 본문을 고치지 말고 **덧붙임을 붙인다** —
+`## 덧붙임 · YYYY-MM-DD — 한 줄 요약`. 결정이 내려진 시점의 판단을 남겨 두는 것이 기록의 값이기
+때문이다. ADR 0007 에 덧붙임이 셋 있다.
 
 반대로, 코드를 읽으면 알 수 있는 것은 ADR 이 아니라 주석으로 간다. 이 저장소의 주석은 무엇을 하는지가
 아니라 **왜 다른 방법이 아닌지**를 적는다. 그 관례를 따라 달라.
@@ -163,7 +171,8 @@ replay 가 빗나갔다면 프롬프트가 바뀐 것이다. **다시 녹화하�
 
 - [ ] `./gradlew checkAll` 통과
 - [ ] `./gradlew integrationTest` 통과 (Docker 필요)
-- [ ] `RemotePeerMemory` 나 그 엔드포인트를 건드렸다면 `contractTest` 를 손으로 돌렸고, 결과를 적었다
+- [ ] `RemotePeerMemory` 나 그 엔드포인트를 건드렸다면, `checkAll` 로그에서 `contractTest` 가
+      건너뛰지 않고 실제로 돌았는지 확인했다
 - [ ] 새 엔드포인트를 더했다면 `RoutePolicy` 에 항목이 있다 (없으면 빌드가 깨진다)
 - [ ] 골든 픽스처나 랭킹 기준선이 바뀌었다면, 왜 바뀌어야 했는지 PR 에 적었다
 - [ ] 명세와 달라진 결정이면 ADR 을 썼다

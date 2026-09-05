@@ -40,6 +40,14 @@
   는 넣지 않았다. 그 webjar 는 Boot 의 정적 매핑이 플래그와 무관하게 서빙해 버린다.
 - 거버넌스 문서 — `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`, 그리고 이 파일.
 - `.github/` — 이슈 폼(버그·기능), PR 템플릿, dependabot, 태그 푸시로 도는 릴리스 워크플로.
+- **문서 사이트** <https://kangwoo.github.io/aimon-memory/> — MkDocs Material 에 한국어·영어 전환과
+  검색을 붙였고, `main` 에 들어간 것이 GitHub Pages 로 그대로 나간다. 빌드는 `--strict` 라
+  깨진 문서 간 링크가 배포가 아니라 CI 에서 걸린다. 앵커까지 검사하도록 `validation.links.anchors`
+  를 켜 뒀다 — MkDocs 의 기본값은 INFO 라서 `--strict` 로도 안 걸린다.
+- ADR 0008 — 아키텍처 서술을 arc42 문서 하나(`docs/architecture.md`)로 모으고, 문서마다 소유하는
+  주제를 정한 결정. README 에 흩어져 있던 모듈 그래프·설계 노트·관문 목록이 그리로 갔다.
+- `docs/adr/` 과 `docs/spec/` 은 사이트에 올리지 않는다. 저장소에는 그대로 있고, 두 곳을 가리키는
+  링크 80개는 `scripts/mkdocs_github_links.py` 가 렌더링 시점에 GitHub URL 로 바꾼다.
 
 ### 변경
 
@@ -66,6 +74,41 @@
 - 버전 카탈로그에서 아무도 쓰지 않던 항목 넷 — `jooq`, `pgvector`, `nanojson`, Testcontainers BOM —
   을 지웠다. 앞의 둘은 ADR 0002 가 결정하기 전의 의존성 초안에서 왔다. 파일 첫머리의 규칙을 이제
   양방향으로 적어 뒀다. 여기 없으면 안 쓰는 것이고, 아무도 안 쓰면 여기 있어서도 안 된다.
+- **발행되는 POM 이 해석된 버전을 담는다.** Spring 의 dependency-management 가 주는 것에는 어느
+  모듈도 버전을 선언하지 않는데 — 그게 그걸 쓰는 이유다 — 그 바람에 생성된 POM 이 버전 없는
+  의존성을 싣고 나갔다. `aimon-memory-store` 는 11개 중 7개가 그랬다. Gradle 소비자는 모듈
+  메타데이터로 버티지만 Maven 소비자는 POM 을 읽고 해석에 실패한다. `versionMapping` 이 빌드가
+  실제로 해석한 값을 적는다. 아홉 좌표 전부에서 버전 없는 의존성이 0개가 됐다.
+- **저장소 SPI 를 봉인했다.** `ConclusionStore`(5→16개 메서드)와 `EntityStore`(2→11개)가 넓어졌고,
+  recall·engine·api·worker 가 `ConclusionRepository` 같은 구상 클래스 대신 이 타입들을 주입받는다.
+  그전까지 "저장소를 갈아 끼울 수 있다"는 주장은 참이 아니었다 — 인터페이스는 있었지만 부르는 곳이
+  없었다. 규칙은 한 줄이다. `aimon-memory-store` 밖에서 호출되는 메서드가 SPI 에 있다. 나머지 아홉
+  리포지토리는 아직 구상 타입이고, `SpiSurfaceTest` 가 그 아홉을 이름으로 적어 둔다 — 할 일 목록이
+  아니라 재고 목록이다. `EventLog` 는 그대로다.
+- **모듈 배치와 조립 그래프를 정리했다.** `HashingEmbedder` 가 `engine` 에서 `embed` 로 옮겨 갔고,
+  `MemoryConfiguration` 이 쪼개졌다 — `RecallConfiguration` 이 새로 생기고, `AnalyzerRegistry` 와
+  `TextProperties` 는 store 로, `Embedder` 와 `EmbedProperties` 는 embed 로 갔다. 그 결과 `recall` 이
+  `engine` 없이 조립된다. 의존도 함께 좁혔다 — `api` 에서 `text` 를, `worker` 에서 `llm` 과 `embed` 를
+  뺐고, `store` 의 postgresql 은 `api` 에서 `implementation` 으로 내렸다.
+- **발행 모듈의 공개 타입 셋이 옮겨지거나 좁아졌다.** `Bm25.CorpusStats` 는
+  `at.aimon.memory.core.model.CorpusStats` 로, `EntityRepository.EntityLink` 는
+  `at.aimon.memory.core.model.EntityLink` 로 나왔다 — 둘 다 SPI 가 주고받는 타입인데 SPI 보다 위에
+  있는 클래스 안에 중첩돼 있어서, `core.spi` 가 자기 시그니처에 쓸 수 없었다. `Jsonb.of` 는 반환
+  타입이 `PGobject` 에서 `Object` 로 좁아졌다. 그게 `aimon-memory-store` 의 ABI 에서 드라이버 타입을
+  이름 부르는 유일한 자리였고, 그래서 postgresql 이 `api` 여야 했으며, 그래서 recall·engine·api·worker
+  의 컴파일 클래스패스에 드라이버가 올라와 있었다. **소비자는 없다** — 릴리스도 태그도 아직 0건이고
+  버전은 `0.1.0-SNAPSHOT` 이라, 셋 다 아무것도 깨뜨리지 않는다. 첫 릴리스 전에 옮겨 둔 이유가 그것이다.
+- **모르는 provider 이름이 기동에서 실패한다.** `AIMON_MEMORY_LLM_PROVIDER=openal` 은 예전에 `none`
+  으로 취급돼서, 배포가 멀쩡히 뜬 다음 모든 모델 호출에 `llm_not_configured` 로 답했다. 이제
+  `unknown_llm_provider` 다. `none` 과 빈 문자열만 "끄기"로 인정된다. 임베더도 같다
+  (`unknown_embed_provider`).
+- `?tokens` 에 상한 128000 이 생겼다(`Bounds.MAX_CONTEXT_TOKENS`). Tier 0 의 응답을 묶는 것은 예산뿐이라
+  상한 없는 예산이 상한 없는 응답이었다 — 이 저장소의 다른 페이징 파라미터는 모두 `Bounds` 를 지난다.
+- **계약 스위트를 Central 의 스냅샷 저장소에서 푼다.** `at.aimon.core:aimon-memory-testkit` 은
+  릴리스가 없지만(0.3.0 이 처음) 스냅샷은 발행돼 있고, 빌드가 그 좌표 하나만 거기서 풀도록 열어
+  뒀다. `mavenLocal()` 을 대신한 것이고, 차이가 요점이다 — 로컬 발행은 기계 한 대에서만 풀리므로
+  계약 계층이 거기서만 돌고 CI 를 포함한 나머지 전부에서 건너뛰었다. 이제 새 클론에서도 CI 에서도
+  21개가 돈다. 근거는 ADR 0007 의 세 번째 덧붙임.
 
 ### 수정
 
@@ -109,13 +152,42 @@
   동등성은 `Principal` 전체를 보고 `Principal` 에는 표시 이름이 들어가므로, 방금 건네받은 subject 와
   같지 않은 subject 를 담은 관측이 돌아왔다. 계약 스위트가 잡아낸 결함이고, 어댑터는 올바른 바이트를
   보내고 올바른 바이트를 파싱하면서도 다른 뜻이 될 수 있다는 것이 이 계층을 건 이유다.
+- **수집 요청의 메시지 제약이 한 번도 검사되지 않았다. 이제 검사되고, 그만큼 동작이 달라진다.**
+  `CreateMessages.messages` 에 `@Valid` 가 없어서 Bean Validation 이 리스트에서 멈추고 원소로 내려가지
+  않았다. `NewMessage` 가 선언해 둔 `@NotBlank` 는 전부 죽은 글자였고, **내용이 비었거나 공백뿐인
+  메시지가 200 으로 통과해 저장됐다.** 이제 **400** 이다. 거부되는 것처럼 보이던 빈 `peer` 는 실은 훨씬
+  아래 키 인코더가 `bad_key` 로 막고 있던 것이라, 이 층이 비어 있다는 사실이 가려져 있었다.
+  **소비자에게 보이는 변경이다** — 빈 content 를 보내고 200 을 받던 클라이언트는 이제 400 을 받는다.
+  DTO 가 이미 선언한 계약을 되살리는 쪽을 택했다. 저장된 빈 메시지는 어차피 도출도 recall 도 되지
+  않으면서 자리만 차지했다.
+- **세션 참여자 추가에서도 같은 결함을 걷어냈다.** `AddSessionPeers.peers` 에 `@Valid` 가 없어서
+  `SessionPeerSpec.peer` 의 `@NotBlank` 가 죽어 있었다. `{"peers":[{"peer":"   "}]}` 가 **200 으로
+  통과했고, 이름이 공백뿐인 peer 행이 실제로 만들어져 세션에 join 됐다.** 이제 400 `bad_request` 다.
+  `peer` 가 `null` 인 경우만 예외적으로 409 `constraint_violation` 으로 막히고 있었는데, 그것도 이제
+  400 으로 온다. **소비자에게 보이는 변경이다.**
+- **dialectic 의 대화 이력도 마찬가지였다.** `ChatRequest.history` 에 `@Valid` 가 없어서 `ChatTurn` 의
+  `@NotBlank` 두 개가 평가되지 않았고, `content` 나 `role` 이 빈 turn 이 **그대로 모델 제공자에게
+  전송됐다.** `POST /chat` 과 `/chat/stream` 둘 다 이제 400 이다. **소비자에게 보이는 변경이다.**
+- 위 둘과 `CreateMessages` 까지 **세 자리가 같은 결함이었다** — 리스트를 받는 필드에 `@Valid` 가 없으면
+  Bean Validation 이 리스트에서 멈추고 원소로 내려가지 않는다. 원소 타입의 제약은 선언만 되어 있고 한
+  번도 평가되지 않는다. 이 결함이 오래 보이지 않은 이유가 특히 짚어 둘 값어치가 있다. **발행된 스키마는
+  내내 옳았다.** springdoc 은 참조되는 타입의 애노테이션을 읽으므로 `docs/openapi.json` 은 처음부터
+  `ChatTurn.role`·`ChatTurn.content`·`SessionPeerSpec.peer` 에 `minLength: 1` 을 싣고 있었다. 즉 문서는
+  강제한다고 말하고 있었고 런타임에는 그 강제가 없었다. **그래서 이번 수정으로 `docs/openapi.json` 은
+  한 줄도 바뀌지 않았다** — 구현이 문서를 따라잡은 것이지 그 반대가 아니다.
+- 한 메시지의 길이에 상한이 생겼다 — `Requests.MAX_CONTENT_CHARS`, 32000자. 배치는 오래전부터 100건으로
+  묶여 있었는데 메시지 자체는 아니어서, 요청 크기도 `GET /context` 의 **응답** 크기도 가장 큰 메시지가
+  정하고 있었다. 32000자는 4자/토큰 근사로 8191 토큰이고, `OpenAiEmbedder` 가 입력을 자르는 지점이다 —
+  그보다 긴 텍스트는 벡터가 되기 전에 잘리므로, 저장해 두면 시맨틱 recall 이 영영 볼 수 없는 꼬리를
+  저장하는 셈이 된다. 아무 말도 없이 그러느니 거부한다. `docs/openapi.json` 에 `maxLength: 32000` 으로
+  실려 있다.
 - **새로 클론한 저장소가 빌드되지 않던 문제.** `aimonCore` 가 Central 에 없는 `0.3.0-SNAPSHOT` 에
   고정돼 있어서, 스냅샷을 직접 publish 한 기계 밖에서는 `:aimon-memory-client:compileJava` 가 실패했다.
   aimon-core 는 릴리스된 0.2.4 로 돌아갔고, Central 에 없는 계약 스위트는 스스로 건너뛰는 별도
   소스셋으로 분리했다. 그 소스셋이 조용히 비는 두 경로 — 관대한 해석이 testkit 말고 다른 실패까지
   삼키는 것, 그리고 발견된 테스트가 0개여도 통과하는 것 — 은 각각 `verifyContractTestClasspath` 와
-  `verifyContractTestRan` 이 막는다. CI 에는 testkit 이 없어 이 계층이 늘 건너뛰므로, 이 계층이
-  비었다는 것을 밖에서 알아차릴 방법이 없다.
+  `verifyContractTestRan` 이 막는다. 그 뒤 testkit 이 Central 스냅샷으로 올라가면서 이 계층은 CI 를
+  포함해 어디서나 돌게 됐다(위 `변경` 참고). 건너뛰기는 좌표가 풀리지 않는 경우를 위해 남아 있다.
 
 ### 보안
 
@@ -125,5 +197,8 @@
   기본 수명은 발급 시점이 아니라 **기동 시점에** 검사한다.
 - `RoutePolicy` 라우트 허용목록과 `RoutePolicyCoverageTest`. 표에 없는 라우트는 거부되고, 살아 있는
   핸들러 매핑에 표에 없는 라우트가 있으면 빌드가 깨진다.
+- `DatabaseCredentialCheck` — 저장소에 커밋된 기본 비밀번호를 이 기계가 아닌 데이터베이스에 대고 쓰면
+  기동을 거부한다(`default_db_password`). 그 값은 저장소를 읽은 누구나 안다. 로컬 흐름
+  (`docker compose` · Testcontainers)은 루프백이라 그대로 통과한다.
 
 [Unreleased]: https://github.com/kangwoo/aimon-memory/commits/main

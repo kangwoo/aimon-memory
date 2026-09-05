@@ -434,6 +434,7 @@
       "NewMessage" : {
         "properties" : {
           "content" : {
+            "maxLength" : 32000,
             "minLength" : 1,
             "type" : "string"
           },
