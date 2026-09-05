@@ -75,8 +75,8 @@ import at.aimon.core.memory.dialectic.ReasoningLevel;
  *
  * <ul>
  * <li>{@link MemorySearcher#narrowsBySession()} — recall ranks a pair's conclusions, and a conclusion outlives the
- * session that produced it. There is no session parameter to pass, so a query carrying a session id gets an answer
- * across all of them rather than a narrowed one, and says so instead of appearing to narrow.</li>
+ * session that produced it. There is no session parameter to pass, so a query carrying a session id is rejected
+ * rather than answered across every session; the CHAT tier is the one that takes a session.</li>
  * <li>{@link ObservationRecorder#storesConfidence()} — an injected conclusion is stored at its level, and confidence
  * is derived from the level and from how often the fact has been re-derived. A caller's number has nowhere to go.</li>
  * <li>{@link MemoryIngestReceipt#isDerived()} — ingestion is a queue write. Derivation happens in the worker
@@ -249,6 +249,19 @@ public final class RemotePeerMemory implements PeerMemory {
         @Override
         public List<MemoryHit> search(MemorySearchQuery query) {
             Objects.requireNonNull(query, "query cannot be null");
+            if (query.getSessionId().isPresent()) {
+                // The recall route has no session parameter — the service ranks a pair's conclusions, and a
+                // conclusion is not filed under the session it was derived from. So there is no request this
+                // adapter could send that narrows, and the only two things it can do with the id are drop it or
+                // refuse. It refuses: sending the query without it returns every session's conclusions, and the
+                // caller who named one would read that wider answer as the narrower one they asked for.
+                throw new IllegalArgumentException("This backend does not narrow by session (narrowsBySession() =="
+                        + " false): AIMON Memory's recall route ranks a pair's conclusions, which outlive the"
+                        + " session that produced them, so there is no session parameter to pass. A search cannot"
+                        + " be confined to session '" + query.getSessionId().orElseThrow() + "'. Use the CHAT tier,"
+                        + " whose dialectic does take a session, or drop the session id and accept an answer across"
+                        + " all of them.");
+            }
             String workspace = workspaceOf(query.getSubject());
             ObjectNode body = MemoryHttp.object();
             body.put("query", query.getQuery());
@@ -283,8 +296,12 @@ public final class RemotePeerMemory implements PeerMemory {
          * Always false: recall is scoped to the pair, and a conclusion outlives the session it came from.
          *
          * <p>
-         * The session is not dropped quietly. A query that carries one gets results from every session the pair has,
-         * and this flag is how the caller finds that out before it presents them as confined to one conversation.
+         * This flag is a warning, not a licence. It used to be written here as the whole answer — the reasoning was
+         * that a caller who reads the flag learns the session was not applied, so answering across every session is
+         * disclosed rather than silent. The contract suite rejected that reasoning explicitly: a filter that did not
+         * run must not read as one that did, and a flag on the searcher is not read at the call site where the
+         * result is consumed. So {@link #search} now throws on a session id rather than widening the answer, and
+         * this flag's job is to let a caller find that out before it makes the call.
          */
         @Override
         public boolean narrowsBySession() {
@@ -363,7 +380,11 @@ public final class RemotePeerMemory implements PeerMemory {
             if (response == null) {
                 throw new RemoteMemoryException("workspace " + workspace + " does not exist", 404, "not_found");
             }
-            return toObservation(response, draft.getSubject().getWorkspace());
+            // The draft's own views, not ones rebuilt from the response. The service round-trips peer ids and has
+            // no column for a display name, so reconstructing a PeerView from what came back discards a field this
+            // method was already holding — and PeerView equality covers the whole Principal, so the caller gets an
+            // observation whose subject is unequal to the subject it just passed in.
+            return toObservation(response, draft.getSubject().getWorkspace(), draft.getSubject(), draft.getObserver());
         }
 
         /**
@@ -449,6 +470,13 @@ public final class RemotePeerMemory implements PeerMemory {
         return PeerView.of(workspace, Principal.user(peer));
     }
 
+    private static PeerView viewOf(Workspace workspace, String peer, PeerView known) {
+        if (known != null && known.getPrincipal().getId().equals(peer)) {
+            return known;
+        }
+        return viewOf(workspace, peer);
+    }
+
     /**
      * Turns a {@code ConclusionResponse} into an {@link Observation}.
      *
@@ -459,11 +487,26 @@ public final class RemotePeerMemory implements PeerMemory {
      * must not take a reader down mid-page.
      */
     private static Observation toObservation(JsonNode conclusion, Workspace workspace) {
+        return toObservation(conclusion, workspace, null, null);
+    }
+
+    /**
+     * Turns a {@code ConclusionResponse} into an {@link Observation}, preferring peers the caller already named.
+     *
+     * <p>
+     * {@code knownSubject} and {@code knownObserver} are the views a write tier was handed and can hand straight
+     * back; they are null on the read paths, where the response is the only source there is. Each is used only when
+     * its principal id matches the one that came back — a server that answered about a different peer is reporting
+     * something, and overwriting it with the caller's view would hide that.
+     */
+    private static Observation toObservation(JsonNode conclusion, Workspace workspace, PeerView knownSubject,
+            PeerView knownObserver) {
         String observed = conclusion.path("observed").asText("");
         String observer = conclusion.path("observer").asText(observed);
         Observation.Builder builder = Observation.builder()
-                .id(ObservationId.of(workspace, conclusion.path("id").asText(""))).subject(viewOf(workspace, observed))
-                .observer(viewOf(workspace, observer)).content(conclusion.path("content").asText(""))
+                .id(ObservationId.of(workspace, conclusion.path("id").asText("")))
+                .subject(viewOf(workspace, observed, knownSubject)).observer(viewOf(workspace, observer, knownObserver))
+                .content(conclusion.path("content").asText(""))
                 .type(observationTypeOf(conclusion.path("level").asText("")))
                 .sourceMessageIds(textList(conclusion.path("messageIds")))
                 .createdAt(instantOf(conclusion.path("createdAt"))).metadata(metadataOf(conclusion));

@@ -44,6 +44,11 @@ tc-postgres       = { module = "org.testcontainers:postgresql",            versi
 tc-junit          = { module = "org.testcontainers:junit-jupiter",         version.ref = "testcontainers" }
 archunit          = { module = "com.tngtech.archunit:archunit-junit5",     version.ref = "archunit" }
 aimon-core        = { module = "at.aimon.core:aimon-core",                 version.ref = "aimonCore" }
+# The five-tier PeerMemory contract suite, published by aimon-core so backends outside that repository can run
+# it. Referenced by GAV and never as a project: `:aimon-memory-testkit` in THIS build is an unrelated internal
+# module of the same name (settings.gradle.kts), and `project(":aimon-memory-testkit")` would pick it up
+# silently — a green build measuring the wrong thing.
+aimon-testkit     = { module = "at.aimon.core:aimon-memory-testkit",      version.ref = "aimonCore" }
 assertj           = { module = "org.assertj:assertj-core",                 version.ref = "assertj" }
 
 [plugins]

@@ -24,6 +24,15 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind")
 
     testImplementation(libs.findLibrary("assertj").get())
+
+    // aimon-core's published contract suite. This is the module the suite was promoted to a published artifact
+    // for: `RemotePeerMemory` is the one PeerMemory backend outside that repository, so it is the one the
+    // "do two backends say the same thing" question could not previously be asked of.
+    //
+    // GAV, not `project(":aimon-memory-testkit")`. This build has an internal module of that exact name and it
+    // is fixtures for the five service tiers — unrelated, and the project notation would resolve to it without
+    // failing.
+    testImplementation(libs.findLibrary("aimon-testkit").get())
 }
 
 /**
@@ -42,6 +51,14 @@ dependencies {
  * Deliberately not a detached configuration resolving the coordinate by hand. That was the first attempt and it
  * reported success even against 0.2.3: composite substitution applies to detached configurations too, so the check
  * downloaded nothing and inspected the same local checkout it was written to catch.
+ *
+ * The `-SNAPSHOT` clause was added after a third way in was walked through, not imagined. Wiring the contract suite
+ * needed `at.aimon.core:aimon-memory-testkit`, which is not on Central until aimon-core 0.3.0, so the way forward
+ * was `publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT` plus `mavenLocal()` and a snapshot pin in the catalog.
+ * That arrives past both existing clauses: a snapshot in ~/.m2 IS a `ModuleComponentIdentifier`, and its jar does
+ * contain `PeerMemory`. The check said "released artifact" about a jar that exists on one laptop — the very POM the
+ * comment above calls out, "pointing at an aimon-core nobody else has", reached through a different door. Versions,
+ * not just identifier types, are what "released" means.
  */
 val verifyCoreIsReleased by tasks.registering {
     description = "Fails if the aimon-core this module is built against is a local checkout or lacks PeerMemory."
@@ -61,6 +78,18 @@ val verifyCoreIsReleased by tasks.registering {
                 "aimon-core resolved to $id — a project rather than a released artifact, which means something has " +
                     "put an `includeBuild` back in settings.gradle.kts. Publishing aimon-memory-client from that " +
                     "build would ship a POM pointing at an aimon-core nobody else has.",
+            )
+        }
+
+        if (id.version.endsWith("-SNAPSHOT")) {
+            throw GradleException(
+                "aimon-core resolved to $id — a snapshot, which is a local or transient build rather than a " +
+                    "released one. Publishing aimon-memory-client against it would ship a POM pointing at an " +
+                    "aimon-core nobody else can resolve, the same failure an `includeBuild` causes. This is the " +
+                    "state `publishToMavenLocal -PVERSION_NAME=<x>-SNAPSHOT` plus `mavenLocal()` puts the build " +
+                    "in, which is how the contract suite is wired before aimon-core 0.3.0 ships: fine to build " +
+                    "and test against, never to publish from. Move `aimonCore` in gradle/libs.versions.toml to a " +
+                    "released version and drop `mavenLocal()` from settings.gradle.kts and build.gradle.kts.",
             )
         }
 
