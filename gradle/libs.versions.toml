@@ -23,7 +23,7 @@ jjwt            = "0.12.7"
 # off, and regardless of what that flag says. The document is the deliverable; a UI can be pointed at
 # docs/openapi.json locally.
 springdoc       = "2.9.0"
-assertj         = "3.27.6"
+assertj         = "3.27.7"
 spotless        = "6.25.0"
 checkstyle      = "10.12.5"
 mavenPublish    = "0.30.0"
