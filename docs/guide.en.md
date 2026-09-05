@@ -295,7 +295,7 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/conclusions "${auth[@]}" \
 | `observer`, `observed` | yes | Whose memory this is, and who it is about |
 | `content` | yes | The fact, one line |
 | `session` | no | Where it came from. Optional |
-| `entities` | no | Linked as given. Extraction is attempted when omitted |
+| `entities` | no | Linked as given. Omitted means this conclusion gets none — extraction runs only when conclusions are derived from messages. Elements **cannot be blank** — one empty name or `null` makes the request a 400 |
 | `expiresAt` | no | The reconciler expires it once this passes |
 
 Injected conclusions go through dedup too. If a row already says the same thing, it is reinforced
@@ -814,7 +814,7 @@ The body is always `{"code": "...", "message": "..."}`.
 | `bad_lifetime` | 400 | Over 30 days, or not positive |
 | `bad_reasoning_level` | 400 | Not one of `minimal` `low` `medium` `high` `max` |
 | `batch_too_large` | 400 | More than 100 messages in one request |
-| `bad_request` | 400 | The body is not JSON, or a field constraint failed — blank message `content` (and over 32000 characters), a blank `peer` name, and an empty turn in `history` all land here |
+| `bad_request` | 400 | The body is not JSON, or a field constraint failed — blank message `content` (and over 32000 characters), a blank `peer` name, an empty turn in `history`, and a blank element in `entities` all land here |
 | `bad_level` | 400 | A conclusion level outside the four values |
 | `llm_not_configured` | 503 | Tier 2 or derivation asked for with no model provider |
 | `fixture_miss` | 503 | Replay mode, and the call is not in the recorded fixtures |

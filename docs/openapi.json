@@ -180,6 +180,7 @@
           },
           "entities" : {
             "items" : {
+              "minLength" : 1,
               "type" : "string"
             },
             "type" : "array"

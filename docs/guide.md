@@ -286,7 +286,7 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/conclusions "${auth[@]}" \
 | `observer`, `observed` | 예 | 이 기억이 누구 것이고 누구에 대한 것인지 |
 | `content` | 예 | 사실 한 줄 |
 | `session` | 아니오 | 어디서 나온 것인지. 없어도 된다 |
-| `entities` | 아니오 | 명시하면 그대로 건다. 없으면 추출을 시도한다 |
+| `entities` | 아니오 | 명시하면 그대로 건다. 없으면 이 결론에는 엔티티가 걸리지 않는다 — 추출은 메시지에서 결론을 도출할 때만 돈다. 원소는 **비어 있을 수 없다** — 빈 이름이나 `null` 이 하나라도 있으면 400 |
 | `expiresAt` | 아니오 | 이 시각이 지나면 리컨실러가 만료시킨다 |
 
 주입된 결론도 중복 제거를 지난다. 이미 같은 말을 하는 행이 있으면 새로 만들지 않고 강화된다.
@@ -796,7 +796,7 @@ IDENTITY:      ATTRIBUTE:      RELATIONSHIP:      INSTRUCTION:
 | `bad_lifetime` | 400 | 30일 초과, 또는 0 이하 |
 | `bad_reasoning_level` | 400 | `minimal` `low` `medium` `high` `max` 중 하나가 아니다 |
 | `batch_too_large` | 400 | 한 요청에 메시지 100건 초과 |
-| `bad_request` | 400 | 본문이 JSON 이 아니거나 필드 제약을 어겼다. 빈 메시지 `content`(32000자 초과 포함), 빈 `peer` 이름, `history` 의 빈 turn 이 전부 여기다 |
+| `bad_request` | 400 | 본문이 JSON 이 아니거나 필드 제약을 어겼다. 빈 메시지 `content`(32000자 초과 포함), 빈 `peer` 이름, `history` 의 빈 turn, `entities` 의 빈 원소가 전부 여기다 |
 | `bad_level` | 400 | 결론 등급이 네 값 중 하나가 아니다 |
 | `llm_not_configured` | 503 | 모델 제공자 없이 Tier 2 나 도출을 요구했다 |
 | `fixture_miss` | 503 | replay 모드인데 기록된 픽스처에 없는 호출이다 |

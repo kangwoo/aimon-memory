@@ -95,9 +95,40 @@ public final class Requests {
     public record SearchMessages(Map<String, Object> filter, Integer page, Integer size) {
     }
 
-    /** Direct injection, for facts a caller already knows and does not want extracted. */
+    /**
+     * Direct injection, for facts a caller already knows and does not want extracted.
+     *
+     * <p>{@code List<@NotBlank @UsableName String>} is a container-element constraint, and unlike the
+     * {@code @Valid} additions elsewhere in this file it is a <em>new</em> promise rather than a
+     * restored one. The
+     * other three — {@code NewMessage}, {@code SessionPeerSpec}, {@code ChatTurn} — already published
+     * {@code minLength: 1} in {@code docs/openapi.json} and simply were not enforcing it. Nothing has
+     * ever been said about the elements of this list, so a caller sending a blank one is not violating
+     * a documented contract; it is being held to a new one, and the schema moves with it.
+     *
+     * <p>What earns the new constraint is measured harm rather than tidiness. A blank name reaches
+     * {@code EntityPipeline} and used to become a node whose {@code name_norm} and {@code name_display}
+     * are both empty — one node, since every blank normalises to the same key, accumulating an edge
+     * from every unrelated conclusion that carried a stray empty string, sitting in the vector index,
+     * and handing the {@code ent} signal to all of them together when a query landed near it. A
+     * {@code null} element was worse: {@code List.copyOf} inside {@code ConclusionDraft} rejects it, so
+     * the request came back 500 with a stack trace logged at ERROR — a client's malformed array
+     * counted as a server fault.
+     *
+     * <p>The pipeline now drops blank names on its own, because most of them come from a model and a
+     * work unit cannot be handed back to its author. This constraint is the stricter answer for the one
+     * caller that can be told: an API client that sends {@code ["서울", ""]} has a bug in how it built
+     * that array, and a 400 naming the field is more use to it than an entity silently going missing.
+     *
+     * <p>{@link UsableName} sits alongside {@code @NotBlank} because the two layers were defining blank
+     * differently: {@code @NotBlank} is {@link String#trim()} and the pipeline is {@link String#isBlank()},
+     * so a whitespace character above {@code U+0020} was accepted here and dropped there — the silent
+     * disappearance this constraint exists to prevent, arriving through the constraint itself.
+     * {@code @NotBlank} stays because it rejects {@code null} and because it is what publishes
+     * {@code minLength: 1}.
+     */
     public record CreateConclusion(@NotBlank String observer, @NotBlank String observed, String session,
-            @NotBlank String content, List<String> entities, String expiresAt) {
+            @NotBlank String content, List<@NotBlank @UsableName String> entities, String expiresAt) {
     }
 
     /**

@@ -199,6 +199,52 @@ first release goes out.
   so neither `@NotBlank` on `ChatTurn` was evaluated, and a turn with empty `content` or `role` **was
   forwarded to the model provider as-is.** Both `POST /chat` and `/chat/stream` return 400 now.
   **Visible to consumers.**
+- **A blank entity name became one nameless node and poisoned the `ent` signal.** `""`, `"   "` and
+  `"\t"` all normalise to the same empty key, so they did not even become several pieces of junk —
+  they became **one node named nothing**, which every conclusion carrying a stray empty string then
+  linked to. It has edges, so the orphan sweep keeps it; it has a vector, so it sits in the index and
+  takes a slot in `entityTopK`. And because its edges reach conclusions with nothing in common, a
+  query landing near its vector **hands `ent` (weight 0.13) to all of them at once.** `GET
+  /recall/provenance?entity=` with whitespace returned that node with a 200.
+- **The shape of that is embedder-independent; the size quoted for it is not.** On the stand-in
+  embedder, three unrelated facts came back at `ent = 0.996` each — which is `countWeight` for three
+  links and nothing more — with explain reporting `matchedEntities: [""]`. Seeing it took a query that
+  suited it: `StubEmbedder` falls back to the token `"empty"` for text it finds no tokens in, so the
+  blank node carries that word's vector, and a query for anything else scored `ent = 0.0`. Where a
+  real embedder puts `embed("")` relative to real queries has **not been measured**, so how often the
+  node is reached is unknown. What holds regardless is the structure: one node, kept by the orphan
+  sweep because it has edges, holding a slot in `entityTopK`, and lifting everything attached to it
+  together whenever it is reached.
+- **The fix is in two layers, and the two layers deliberately answer differently.**
+  - `EntityPipeline.linkAll` **filters them out — it does not refuse.** Every entity name in the
+    system arrives through the injection endpoint, the deriver or the dreamer, and all three funnel
+    through here. Refusing is wrong because most of what reaches this point is **model output**, and
+    throwing would not even undo the write: `ConclusionWriter.write` is not transactional, so every
+    conclusion in the batch is already committed and would simply be left **without its entity
+    edges**, while the work unit is retried five times — each retry re-deriving the same facts, which
+    dedup counts as reinforcement and adds to `times_derived`, inflating the `reinf` signal — before
+    the batch is quarantined. `DeriverService` and `DreamerService` already skip an item whose
+    **content** is blank; this is the same judgement one field over.
+  - `POST /v1/workspaces/{ws}/conclusions` **refuses.** `CreateConclusion.entities` is now
+    `List<@NotBlank @UsableName String>`, so it is a 400. An HTTP client can fix its own bug, and
+    telling it beats dropping the name silently. It also closes `"entities": [null]`, which used to be
+    a **500 `internal_error`** and is now a 400.
+  - The two layers had to be made to agree on what blank means. `@NotBlank` is specified with
+    `String.trim()` (characters at or below `U+0020`) and the filter uses `String.isBlank()`
+    (`Character.isWhitespace`), so `entities: ["\u2000"]` was **accepted with a 200 and then dropped
+    without trace** — the silent disappearance the 400 exists to prevent, arriving through the
+    constraint itself. `@UsableName` is that rule, using the same method the filter does.
+- **Nodes already stored are deleted, and the invariant moves into the schema (V12).** The filter
+  only stops new ones: an existing nameless node has edges, so the orphan sweep keeps it, and
+  `reindex` will re-embed an empty display name and put it back in the index. `V12` deletes them
+  (`entity_links` cascades) and adds `ck_entity_name_norm CHECK (name_norm <> '')`. The check cannot
+  fire on model output — `isUsable` is `String.isBlank()` and `normalize` is `String.strip()`, the
+  same predicate — so it only speaks up when something above the database is already wrong, which is
+  what `ck_level`, `ck_sync_state` and `ck_explicit_needs_session` are all for.
+- That `entities` constraint is **a different kind of change from the three above.** Those made the
+  runtime honour a contract the published schema already promised; this one **invents a constraint
+  that was never promised**. So this time `docs/openapi.json` does change, by one line —
+  `minLength: 1` on `CreateConclusion.entities.items`.
 - Those two and `CreateMessages` were **the same defect in three places**: without `@Valid` on a field
   holding a list, Bean Validation stops at the list and never descends into the elements, so the
   element type's constraints are declared and never evaluated. Why it stayed invisible for so long is
