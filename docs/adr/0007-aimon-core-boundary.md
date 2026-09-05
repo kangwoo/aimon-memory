@@ -167,3 +167,31 @@ shared suite exists.
   the suite would fail today. Two backends claiming the same contract with only one of them running
   the suite is the state that suite was written to end; a repository that knows which assertion would
   fail and does not say so is a worse version of that state.
+
+---
+
+## Addendum · 2026-09-05 — steps 1-4 were taken, and two sentences above are now false
+
+The decision stands and is not rewritten. Two statements of *fact* in it are not true any more,
+and leaving them would make this page assert the opposite of what the tree does.
+
+| Above | Now |
+|---|---|
+| "We do not consume it yet." | `RemotePeerMemoryContractTest` extends `AbstractPeerMemoryContractTest`. |
+| "Contract parity … is known to be unmet … the suite would fail today." | It failed, was fixed, and passes — 21 tests, **0 skipped**, all five tiers exercised. |
+
+Steps 1-4 did not wait for aimon-core `0.3.0`. `publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT`
+plus `mavenLocal()` here resolves the coordinate, so the ordering this ADR assumed — release first,
+wire second — held as a dependency but not as a schedule. What actually blocked the wiring was a
+resolvable coordinate, and a release is only one way to get one.
+
+**Two assertions failed on the first run, not one.** `sessionIdIsRejectedRatherThanIgnored` failed
+as this ADR predicted. `recordingAssignsAnIdentity` also failed, and nothing here predicted it:
+`Principal.equals` compares `displayName` while `PeerView.toString` prints only the id, so the
+adapter was returning a subject that differed from the one it was handed and printed identically to
+it. Reading the suite could not have found that; running it did. That is the argument for step 3
+restated as a result rather than a plan.
+
+**The wiring stands on scaffolding.** `mavenLocal()` in `settings.gradle.kts` and
+`build.gradle.kts`, and `aimonCore = "0.3.0-SNAPSHOT"`, all come out when `0.3.0` reaches Central.
+Forgetting is not silent: `verifyCoreIsReleased` now rejects a snapshot and names the three lines.
