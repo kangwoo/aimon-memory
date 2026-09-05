@@ -1,6 +1,6 @@
 # aimon-memory — Honcho 골격 위에 mem0의 강점을 이식한 메모리 모델
 
-> `honcho-java-spec.md`의 아키텍처를 뼈대로, `mem0-java-spec.md`의 검색 엔진과 운영 장치를 이식한 독립 설계.
+> `honcho`의 아키텍처를 뼈대로, `mem0`의 검색 엔진과 운영 장치를 이식한 독립 설계.
 > `aimon-memory`는 작업용 이름이다 — 모든 메모리가 **(observer, observed) 쌍**에 귀속된다는 핵심을 가리킨다.
 > 작성일: 2026-08-31
 
