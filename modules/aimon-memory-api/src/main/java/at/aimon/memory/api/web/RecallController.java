@@ -20,9 +20,12 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.recall.ProvenanceService;
 import at.aimon.memory.recall.RecallRequest;
 import at.aimon.memory.recall.RecallService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Tier 1 recall and entity-anchored provenance. */
 @RestController
+@Tag(name = "recall", description = "Tier 1: ranked retrieval over a pair's memory, and the evidence behind it.")
 public class RecallController {
 
     private final RecallService recall;
@@ -35,6 +38,7 @@ public class RecallController {
         this.pairs = pairs;
     }
 
+    @Operation(summary = "Tier 1: rank a pair's conclusions against a query")
     @PostMapping("/v1/workspaces/{workspace}/recall")
     public Dtos.RecallResponseBody recall(@PathVariable String workspace, MemoryPrincipal principal,
             @Valid @RequestBody Requests.RecallQuery body) {
@@ -51,6 +55,7 @@ public class RecallController {
      * <p>This is the capability neither source design has: one can find the conclusions but not their
      * evidence, the other has the evidence chain but nothing to look it up by.
      */
+    @Operation(summary = "Trace an entity to the beliefs and sentences behind it")
     @GetMapping("/v1/workspaces/{workspace}/recall/provenance")
     public Dtos.ProvenanceResponse provenance(@PathVariable String workspace, MemoryPrincipal principal,
             @RequestParam String entity, @RequestParam String observer, @RequestParam String observed,

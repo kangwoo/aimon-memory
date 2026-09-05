@@ -24,9 +24,12 @@ import at.aimon.memory.engine.dream.DreamerService;
 import at.aimon.memory.engine.dream.PeerCardService;
 import at.aimon.memory.store.repo.DreamRepository;
 import at.aimon.memory.store.repo.QueueRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Dream scheduling and the peer card. */
 @RestController
+@Tag(name = "dreams", description = "Consolidation passes, and the peer card they maintain.")
 public class DreamController {
 
     private final DreamerService dreamer;
@@ -51,6 +54,7 @@ public class DreamController {
      * partial unique index — this endpoint and the automatic scheduler race constantly, and the
      * loser has to find out from a constraint rather than from a prior read.
      */
+    @Operation(summary = "Schedule a dream now")
     @PostMapping("/v1/workspaces/{workspace}/dreams")
     public Dtos.DreamResponse schedule(@PathVariable String workspace, MemoryPrincipal principal,
             @Valid @RequestBody Requests.ScheduleDream body) {
@@ -68,6 +72,7 @@ public class DreamController {
         return toResponse(dream);
     }
 
+    @Operation(summary = "List a pair's dreams")
     @GetMapping("/v1/workspaces/{workspace}/dreams")
     public List<Dtos.DreamResponse> list(@PathVariable String workspace, MemoryPrincipal principal,
             @RequestParam String observer, @RequestParam String observed,
@@ -76,6 +81,7 @@ public class DreamController {
         return dreams.forPair(pair, Bounds.history(limit)).stream().map(DreamController::toResponse).toList();
     }
 
+    @Operation(summary = "Get a pair's peer card")
     @GetMapping("/v1/workspaces/{workspace}/peer-card")
     public Dtos.PeerCardResponse card(@PathVariable String workspace, MemoryPrincipal principal,
             @RequestParam String observer, @RequestParam String observed) {
@@ -91,6 +97,7 @@ public class DreamController {
      * <p>One cheap model call, no tools, and it does not advance the dreamer's counters — refreshing a
      * card must not consume the budget meant for the pass that produces new knowledge.
      */
+    @Operation(summary = "Regenerate the peer card now")
     @PostMapping("/v1/workspaces/{workspace}/peer-card/refresh")
     public Dtos.PeerCardResponse refresh(@PathVariable String workspace, MemoryPrincipal principal,
             @RequestParam String observer, @RequestParam String observed) {

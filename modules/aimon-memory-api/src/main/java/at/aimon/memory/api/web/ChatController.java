@@ -26,9 +26,12 @@ import at.aimon.memory.core.spi.llm.LlmMessage;
 import at.aimon.memory.core.spi.llm.Role;
 import at.aimon.memory.engine.dialectic.DialecticService;
 import at.aimon.memory.engine.dialectic.ReasoningLevel;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Tier 2: the agentic path, blocking and streaming. */
 @RestController
+@Tag(name = "chat", description = "Tier 2: an agentic loop, for what one ranked lookup cannot answer.")
 public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
@@ -45,6 +48,7 @@ public class ChatController {
         this.pairs = pairs;
     }
 
+    @Operation(summary = "Tier 2: answer a question with tools over memory")
     @PostMapping("/v1/workspaces/{workspace}/chat")
     public Dtos.ChatResponse chat(@PathVariable String workspace, MemoryPrincipal principal,
             @Valid @RequestBody Requests.ChatRequest body) {
@@ -61,6 +65,7 @@ public class ChatController {
      * waiting, and parking a virtual thread on that wait costs a few hundred bytes rather than a
      * platform thread — which is the entire reason this is MVC and not a reactive stack.
      */
+    @Operation(summary = "Tier 2, streamed over SSE")
     @PostMapping(value = "/v1/workspaces/{workspace}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String workspace, MemoryPrincipal principal,
             @Valid @RequestBody Requests.ChatRequest body) {

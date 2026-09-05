@@ -31,7 +31,7 @@ docker compose up -d
 | Command | What it proves | Docker | When |
 |---|---|:-:|---|
 | `./gradlew checkAll` | Formatting, style, the BOM, and the 165 tests that need no database | no | on every save |
-| `./gradlew integrationTest` | The 236 Testcontainers tests | yes | before opening a PR |
+| `./gradlew integrationTest` | The 241 Testcontainers tests | yes | before opening a PR |
 | `./gradlew :aimon-memory-client:contractTest` | aimon-core's 21 `PeerMemory` contract cases | no | see below |
 | `./gradlew :aimon-memory-worker:loadTest` | Concurrent readers and writers under contention | yes | when you touch the worker or the queue |
 
@@ -111,6 +111,13 @@ credentials, and `./scripts/record-fixtures.sh` is how it is done.
 ```sh
 ./gradlew test -Daimon.memory.golden.update=true    # rewrite the golden fixtures instead of asserting
 ./gradlew test -Daimon.memory.eval.update=true      # regenerate the ranking baseline
+```
+
+A route added, or one whose shape changed, means regenerating the API description with the same
+switch. This one needs a database, so it is `integrationTest` rather than `test`.
+
+```sh
+./gradlew :aimon-memory-api:integrationTest -Daimon.memory.golden.update=true
 ```
 
 Both switches make the tests **pass by definition.** A diff touching those files therefore needs the

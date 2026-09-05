@@ -23,9 +23,12 @@ import at.aimon.memory.store.repo.PeerRepository;
 import at.aimon.memory.store.repo.SessionPeerRepository;
 import at.aimon.memory.store.repo.SessionRepository;
 import at.aimon.memory.store.repo.WorkspaceRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Workspaces, peers, sessions and session membership. */
 @RestController
+@Tag(name = "hierarchy", description = "Workspaces, peers, sessions, and who was in a session when.")
 public class HierarchyController {
 
     private final WorkspaceRepository workspaces;
@@ -43,6 +46,7 @@ public class HierarchyController {
         this.settings = settings;
     }
 
+    @Operation(summary = "List workspaces")
     @GetMapping("/v1/workspaces")
     public Dtos.PageResponse<Dtos.WorkspaceResponse> listWorkspaces(@RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
@@ -51,6 +55,7 @@ public class HierarchyController {
     }
 
     /** Create-or-get: idempotent, so a client can call it on every start without checking first. */
+    @Operation(summary = "Create or get a workspace")
     @PostMapping("/v1/workspaces/{workspace}")
     public Dtos.WorkspaceResponse createWorkspace(@PathVariable String workspace,
             @RequestBody(required = false) Requests.CreateWorkspace body) {
@@ -59,6 +64,7 @@ public class HierarchyController {
                 request.configuration() == null ? Map.of() : request.configuration()));
     }
 
+    @Operation(summary = "Get a workspace")
     @GetMapping("/v1/workspaces/{workspace}")
     public Dtos.WorkspaceResponse getWorkspace(@PathVariable String workspace) {
         return workspaces.find(workspace).map(HierarchyController::toWorkspace)
@@ -74,6 +80,7 @@ public class HierarchyController {
      * read: the failure mode that makes a tuning session produce default rankings with nothing to
      * indicate why.
      */
+    @Operation(summary = "Replace a workspace's tuning configuration")
     @PutMapping("/v1/workspaces/{workspace}/configuration")
     public Dtos.WorkspaceResponse updateWorkspaceConfiguration(@PathVariable String workspace,
             @Valid @RequestBody Requests.UpdateConfiguration body) {
@@ -84,6 +91,7 @@ public class HierarchyController {
         return getWorkspace(workspace);
     }
 
+    @Operation(summary = "Create or get a peer")
     @PostMapping("/v1/workspaces/{workspace}/peers/{peer}")
     public Dtos.PeerResponse createPeer(@PathVariable String workspace, @PathVariable String peer,
             @RequestBody(required = false) Requests.CreatePeer body) {
@@ -93,6 +101,7 @@ public class HierarchyController {
         return new Dtos.PeerResponse(saved.name(), saved.metadata(), saved.configuration(), saved.createdAt());
     }
 
+    @Operation(summary = "List a workspace's peers")
     @GetMapping("/v1/workspaces/{workspace}/peers")
     public Dtos.PageResponse<Dtos.PeerResponse> listPeers(@PathVariable String workspace,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
@@ -100,6 +109,7 @@ public class HierarchyController {
                 p -> new Dtos.PeerResponse(p.name(), p.metadata(), p.configuration(), p.createdAt()));
     }
 
+    @Operation(summary = "Get a peer")
     @GetMapping("/v1/workspaces/{workspace}/peers/{peer}")
     public Dtos.PeerResponse getPeer(@PathVariable String workspace, @PathVariable String peer) {
         return peers.find(workspace, peer)
@@ -107,6 +117,7 @@ public class HierarchyController {
                 .orElseThrow(() -> new NotFoundException("peer", peer));
     }
 
+    @Operation(summary = "Replace a peer's configuration")
     @PutMapping("/v1/workspaces/{workspace}/peers/{peer}/configuration")
     public Dtos.PeerResponse updatePeerConfiguration(@PathVariable String workspace, @PathVariable String peer,
             @Valid @RequestBody Requests.UpdateConfiguration body) {
@@ -114,6 +125,7 @@ public class HierarchyController {
         return getPeer(workspace, peer);
     }
 
+    @Operation(summary = "Create or get a session")
     @PostMapping("/v1/workspaces/{workspace}/sessions/{session}")
     public Dtos.SessionResponse createSession(@PathVariable String workspace, @PathVariable String session,
             @RequestBody(required = false) Requests.CreateSession body) {
@@ -123,6 +135,7 @@ public class HierarchyController {
         return new Dtos.SessionResponse(saved.name(), saved.isActive(), saved.metadata(), saved.createdAt());
     }
 
+    @Operation(summary = "List a workspace's sessions")
     @GetMapping("/v1/workspaces/{workspace}/sessions")
     public Dtos.PageResponse<Dtos.SessionResponse> listSessions(@PathVariable String workspace,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
@@ -130,6 +143,7 @@ public class HierarchyController {
                 s -> new Dtos.SessionResponse(s.name(), s.isActive(), s.metadata(), s.createdAt()));
     }
 
+    @Operation(summary = "Get a session")
     @GetMapping("/v1/workspaces/{workspace}/sessions/{session}")
     public Dtos.SessionResponse getSession(@PathVariable String workspace, @PathVariable String session) {
         return sessions.find(workspace, session)
@@ -137,6 +151,7 @@ public class HierarchyController {
                 .orElseThrow(() -> new NotFoundException("session", session));
     }
 
+    @Operation(summary = "List a session's membership")
     @GetMapping("/v1/workspaces/{workspace}/sessions/{session}/peers")
     public List<Dtos.SessionPeerResponse> listSessionPeers(@PathVariable String workspace,
             @PathVariable String session) {
@@ -144,6 +159,7 @@ public class HierarchyController {
                 p.observeMe(), p.observeOthers(), p.joinedAt(), p.leftAt())).toList();
     }
 
+    @Operation(summary = "Add peers to a session")
     @PostMapping("/v1/workspaces/{workspace}/sessions/{session}/peers")
     public List<Dtos.SessionPeerResponse> addSessionPeers(@PathVariable String workspace, @PathVariable String session,
             @Valid @RequestBody Requests.AddSessionPeers body) {
@@ -155,6 +171,7 @@ public class HierarchyController {
     }
 
     /** Replace the roster wholesale; anyone not listed has their membership window closed. */
+    @Operation(summary = "Replace a session's roster")
     @PutMapping("/v1/workspaces/{workspace}/sessions/{session}/peers")
     public List<Dtos.SessionPeerResponse> replaceSessionPeers(@PathVariable String workspace,
             @PathVariable String session, @Valid @RequestBody Requests.AddSessionPeers body) {
@@ -167,6 +184,7 @@ public class HierarchyController {
         return listSessionPeers(workspace, session);
     }
 
+    @Operation(summary = "Remove a peer from a session")
     @DeleteMapping("/v1/workspaces/{workspace}/sessions/{session}/peers/{peer}")
     public List<Dtos.SessionPeerResponse> removeSessionPeer(@PathVariable String workspace,
             @PathVariable String session, @PathVariable String peer) {

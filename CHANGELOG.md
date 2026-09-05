@@ -32,6 +32,12 @@
   양쪽에서 하중을 받는 계약이라 문서로 고정했다.
 - 저장소 루트의 `LICENSE` (Apache-2.0). `gradle.properties` 의 POM 이 예전부터 주장해 온 파일이다.
 - `NOTICE` — mem0(Apache-2.0)에서 온 랭킹 공식의 출발점에 대한 귀속. 근거는 ADR 0005.
+- `docs/openapi.json` — 33개 라우트, 요청·응답 스키마, 오류 본문의 OpenAPI 3.1 서술. 실행 중인
+  애플리케이션에서 생성해 커밋했고, 둘이 어긋나면 `OpenApiSpecTest` 가 실패한다. 라우트마다 필요한
+  토큰 스코프는 `RoutePolicy` 에서 그때 읽어 찍기 때문에 인가 규칙의 사본이 하나 더 생기지 않는다.
+  실행 중 서술 엔드포인트 `/v3/api-docs` 는 `AIMON_MEMORY_OPENAPI` 뒤에 있고 기본값은 꺼짐이다 —
+  인증 인터셉터가 `/v1/**` 만 덮기 때문이고, actuator 를 별도 포트로 보낸 것과 같은 이유다. Swagger UI
+  는 넣지 않았다. 그 webjar 는 Boot 의 정적 매핑이 플래그와 무관하게 서빙해 버린다.
 - 거버넌스 문서 — `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`, 그리고 이 파일.
 - `.github/` — 이슈 폼(버그·기능), PR 템플릿, dependabot, 태그 푸시로 도는 릴리스 워크플로.
 

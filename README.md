@@ -138,6 +138,11 @@ curl -s localhost:8080/v1/workspaces/demo/recall \
 만들어 브라우저에 건네되, 그것을 발급하는 서비스 근처에 admin 키를 두지 않는 식이다. 넓히는 것은
 거부한다. 다른 workspace, 더 넓은 scope, 발급자가 대변하지 않는 peer 는 안 된다.
 
+라우트 서른세 개 전부가 [`docs/openapi.json`](docs/openapi.json) 에 있다. 요청·응답 스키마와 라우트마다
+필요한 토큰 스코프까지 들어 있다. 브라우저로 훑고 싶으면 아무 Swagger UI 에나 저 파일을 물리면 된다.
+실행 중인 서비스에서 받고 싶으면 `AIMON_MEMORY_OPENAPI=true` 로 띄우면 `/v3/api-docs` 가 열린다 —
+기본값은 꺼짐이고, 인증 인터셉터가 `/v1/**` 만 덮기 때문이다.
+
 ---
 
 ## 모듈
@@ -243,9 +248,9 @@ aimon-core 0.3.0 에서 처음 나오므로 `aimonTestkit` 으로 따로 고정�
 ## 테스트
 
 ```
-401  tests, all green
+406  tests, all green
 165  of them need no database (`checkAll`)
-236  of them do (`integrationTest`)
+241  of them do (`integrationTest`)
 ```
 
 | 계층 | 방법 | 관문 |
@@ -261,6 +266,7 @@ aimon-core 0.3.0 에서 처음 나오므로 `aimonTestkit` 으로 따로 고정�
 | 부하 | 동시 읽기·쓰기 | 오류 0건, 경합 아래에서도 빈틈 없는 시퀀스 (CI 는 작은 프로파일로 돈다) |
 | 설정 | 쓰기 경계에서 검증 | 모르는 키나 못 쓸 값은 422 이지 조용한 폴백이 아니다 |
 | 제공자 와이어 포맷 | 임시 포트에 실제 서버 | 요청 본문을 검사한다. 그것을 만든 객체가 아니라 |
+| API 서술 | 생성한 문서 대 커밋된 문서 | `docs/openapi.json` 이 뒤처지거나, 라우트에 요약과 스코프가 없으면 실패 |
 | aimon-core 어댑터 | 임시 포트에 실제 서버 | 쌍의 방향, 다섯 티어의 본문, 정직한 능력 신호 셋 |
 
 이 스위트에서 알아 둘 것 두 가지.
@@ -339,6 +345,8 @@ mean nDCG@5 0.671   nDCG@10 0.700   MRR 0.795   recall@10 0.655
 - [`docs/adr/`](docs/adr/README.md) — 위 두 문서에서 어디를 어떻게 벗어났는지, 왜인지, 근거와 함께.
   aimon-core 쪽에서 왔다면 [ADR 0007](docs/adr/0007-aimon-core-boundary.md) 부터 읽으면 된다. 두
   저장소 사이의 경계를 긋는 문서다
+- [`docs/openapi.json`](docs/openapi.json) — 33개 라우트, 요청·응답 스키마, 라우트마다 필요한 스코프.
+  실행 중인 애플리케이션에서 생성해 커밋한 것이고, 테스트가 둘을 붙들어 둔다
 - [`docs/runbook.md`](docs/runbook.md) — 배포, 튜닝, 뭔가 잘못됐을 때 볼 것
 - [`docs/dashboards/`](docs/dashboards) — Grafana 대시보드 `aimon-memory-overview.json`
 - [`test-fixtures/README.md`](test-fixtures/README.md) — 픽스처 코퍼스 두 벌과 각각이 증명하는 것

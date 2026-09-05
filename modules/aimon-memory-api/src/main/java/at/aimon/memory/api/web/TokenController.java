@@ -16,6 +16,8 @@ import at.aimon.memory.api.security.JwtService;
 import at.aimon.memory.api.security.MemoryPrincipal;
 import at.aimon.memory.api.security.TokenScope;
 import at.aimon.memory.core.MemoryException;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * Mints scoped tokens.
@@ -32,6 +34,7 @@ import at.aimon.memory.core.MemoryException;
  * workspace by {@link MemoryPrincipal#canReachWorkspace}.
  */
 @RestController
+@Tag(name = "tokens", description = "Minting scoped tokens. A token may mint none wider than itself.")
 public class TokenController {
 
     private final JwtService jwt;
@@ -40,6 +43,7 @@ public class TokenController {
         this.jwt = jwt;
     }
 
+    @Operation(summary = "Mint a scoped token")
     @PostMapping("/v1/tokens")
     public Dtos.TokenResponse issue(MemoryPrincipal caller, @Valid @RequestBody Requests.IssueToken body) {
         TokenScope scope = TokenScope.fromWire(body.scope());

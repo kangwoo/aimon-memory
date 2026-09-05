@@ -18,6 +18,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-core")
+    implementation(libs.findLibrary("springdoc").get())
     implementation(libs.findLibrary("jjwt-api").get())
     runtimeOnly(libs.findLibrary("jjwt-impl").get())
     runtimeOnly(libs.findLibrary("jjwt-jackson").get())

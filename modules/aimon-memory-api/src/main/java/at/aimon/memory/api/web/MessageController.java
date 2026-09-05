@@ -23,9 +23,12 @@ import at.aimon.memory.core.key.WorkUnitKey;
 import at.aimon.memory.engine.context.ContextService;
 import at.aimon.memory.engine.ingest.MessageIngestionService;
 import at.aimon.memory.store.repo.MessageRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Message ingestion, search, and Tier 0 context. */
 @RestController
+@Tag(name = "messages", description = "Ingestion, search, and Tier 0 context. Posting a message starts derivation.")
 public class MessageController {
 
     /** Upper bound on {@code ?wait=derive}. Past this the caller gets what exists rather than a hang. */
@@ -51,6 +54,7 @@ public class MessageController {
      * global equivalent — a flag that makes every write synchronous — costs the batching win across
      * the whole deployment to serve the few callers that need it.
      */
+    @Operation(summary = "Store messages and queue derivation")
     @PostMapping("/v1/workspaces/{workspace}/sessions/{session}/messages")
     public List<Dtos.MessageResponse> create(@PathVariable String workspace, @PathVariable String session,
             MemoryPrincipal principal, @RequestParam(required = false) String wait,
@@ -96,6 +100,7 @@ public class MessageController {
         // simply does not get to see the conclusions in this response.
     }
 
+    @Operation(summary = "List a session's messages")
     @GetMapping("/v1/workspaces/{workspace}/sessions/{session}/messages")
     public Dtos.PageResponse<Dtos.MessageResponse> list(@PathVariable String workspace, @PathVariable String session,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size) {
@@ -104,6 +109,7 @@ public class MessageController {
                 Dtos.MessageResponse::of);
     }
 
+    @Operation(summary = "Search a session's messages")
     @PostMapping("/v1/workspaces/{workspace}/sessions/{session}/messages/search")
     public Dtos.PageResponse<Dtos.MessageResponse> search(@PathVariable String workspace, @PathVariable String session,
             @RequestBody(required = false) Requests.SearchMessages body) {
@@ -114,6 +120,7 @@ public class MessageController {
     }
 
     /** Tier 0: summary plus recent messages inside a token budget. No model, no vector search. */
+    @Operation(summary = "Tier 0: summary plus recent messages inside a token budget")
     @GetMapping("/v1/workspaces/{workspace}/sessions/{session}/context")
     public Dtos.ContextResponse context(@PathVariable String workspace, @PathVariable String session,
             @RequestParam(defaultValue = "4000") int tokens, @RequestParam(required = false) String target,

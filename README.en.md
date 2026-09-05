@@ -141,6 +141,11 @@ session token for one conversation, handed to a browser, without an admin key go
 the service that issues it. Widening is refused: a different workspace, a broader scope, or a peer
 the caller does not already speak for.
 
+All thirty-three routes are in [`docs/openapi.json`](docs/openapi.json), with their request and
+response schemas and the token scope each one needs. To click through them, point any Swagger UI at
+that file. To fetch it from a running service, start with `AIMON_MEMORY_OPENAPI=true` and read
+`/v3/api-docs` — off by default, because the auth interceptor covers `/v1/**` and nothing else.
+
 ---
 
 ## Modules
@@ -253,9 +258,9 @@ belief no human ever stated.
 ## Testing
 
 ```
-401  tests, all green
+406  tests, all green
 165  of them need no database (`checkAll`)
-236  of them do (`integrationTest`)
+241  of them do (`integrationTest`)
 ```
 
 | Layer | Method | Gate |
@@ -271,6 +276,7 @@ belief no human ever stated.
 | Load | concurrent readers and writers | no errors, gap-free sequence under contention (CI runs a small profile) |
 | Configuration | validated at the write boundary | an unknown key or an unusable value is a 422, never a silent fallback |
 | Provider wire format | a real server on an ephemeral port | the request body is asserted, not the object that produced it |
+| API description | generated against committed | fails when `docs/openapi.json` falls behind, or a route has no summary and scope |
 | aimon-core adapter | a real server on an ephemeral port | the pair's direction, the five tiers' bodies, and the three honest capability signals |
 
 Two things worth knowing about the suite.
@@ -353,6 +359,8 @@ reader who does not read Korean.
 - [`docs/adr/`](docs/adr/README.en.md) — where this deviates from either, and why, with the evidence.
   [ADR 0007](docs/adr/0007-aimon-core-boundary.en.md) is the one to read first if you arrived from aimon-core:
   it draws the boundary between the two repositories
+- [`docs/openapi.json`](docs/openapi.json) — the 33 routes, their request and response schemas, and the
+  scope each one needs. Generated from the running application and committed; a test holds the two together
 - [`docs/runbook.en.md`](docs/runbook.en.md) — deploying, tuning, and what to check when something is wrong
 - [`docs/dashboards/`](docs/dashboards) — a Grafana dashboard, `aimon-memory-overview.json`
 - [`test-fixtures/README.en.md`](test-fixtures/README.en.md) — the two fixture corpora and what each proves

@@ -99,6 +99,13 @@ tasks.withType<Test>().configureEach {
         "aimon.memory.fixtures.dir",
         rootProject.layout.projectDirectory.dir("test-fixtures").asFile.absolutePath,
     )
+    // The generated OpenAPI description is documentation rather than a fixture, so it lives under docs/.
+    // It is still written by a test, and so needs the same answer to "wherever Gradle put the working
+    // directory" that the line above gives the fixtures.
+    systemProperty(
+        "aimon.memory.docs.dir",
+        rootProject.layout.projectDirectory.dir("docs").asFile.absolutePath,
+    )
     systemProperty("aimon.memory.golden.update", System.getProperty("aimon.memory.golden.update") ?: "false")
     systemProperty("aimon.memory.eval.update", System.getProperty("aimon.memory.eval.update") ?: "false")
     systemProperty("aimon.memory.load", System.getProperty("aimon.memory.load") ?: "false")

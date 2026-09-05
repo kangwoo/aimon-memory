@@ -135,6 +135,11 @@ Prometheus 는 서비스 포트가 아니라 **관리 포트**(`AIMON_MEMORY_MAN
 옆에 선다. 워커는 API 를 제공하지 않아서 actuator 가 HTTP 표면 전부이고, 그 포트가 9091 이다 —
 메트릭을 떼어 놓을 두 번째 커넥터가 없다. 8080 은 공개하고, 9090 도 9091 도 공개하지 말 것.
 
+같은 이유로 API 서술도 기본값이 꺼짐이다. `AIMON_MEMORY_OPENAPI=true` 는 `/v3/api-docs` 를 서비스
+포트에, 즉 토큰 없이 연다. 운영에서 켤 이유는 없다 — 커밋된 `docs/openapi.json` 이 같은 문서이고,
+그쪽은 버전이 붙어 있다. Swagger UI 는 아예 들어 있지 않다. 그 webjar 는 이 플래그가 뭐라고 하든
+Boot 의 정적 매핑이 서빙해 버리기 때문이다.
+
 | 메트릭 | 무엇을 볼 것인가 |
 |---|---|
 | `aimon_memory_worker_unit_seconds` | p99 가 올라가면 데이터베이스가 아니라 제공자 지연이다 |

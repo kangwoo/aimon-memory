@@ -32,9 +32,12 @@ import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.EventLogRepository;
 import at.aimon.memory.store.repo.PeerRepository;
 import at.aimon.memory.store.repo.SessionRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** Direct conclusion access: list, inject, delete, audit trail, reasoning chain. */
 @RestController
+@Tag(name = "conclusions", description = "What is remembered: list, inject, delete, audit, reasoning chain.")
 public class ConclusionController {
 
     private final ConclusionRepository conclusions;
@@ -63,6 +66,7 @@ public class ConclusionController {
         this.pairs = pairs;
     }
 
+    @Operation(summary = "List a pair's conclusions")
     @GetMapping("/v1/workspaces/{workspace}/conclusions")
     public Dtos.PageResponse<Dtos.ConclusionResponse> list(@PathVariable String workspace, MemoryPrincipal principal,
             @RequestParam String observer, @RequestParam String observed, @RequestParam(defaultValue = "0") int page,
@@ -79,6 +83,7 @@ public class ConclusionController {
      * only difference is the actor recorded. A side door that skipped either would make the store's
      * invariants conditional on which path wrote the row.
      */
+    @Operation(summary = "Inject a fact directly")
     @PostMapping("/v1/workspaces/{workspace}/conclusions")
     public Dtos.ConclusionResponse create(@PathVariable String workspace, MemoryPrincipal principal,
             @Valid @RequestBody Requests.CreateConclusion body) {
@@ -103,6 +108,7 @@ public class ConclusionController {
     }
 
     /** Soft delete plus entity cleanup. The row stays; the audit log needs a subject to point at. */
+    @Operation(summary = "Soft-delete a conclusion")
     @DeleteMapping("/v1/workspaces/{workspace}/conclusions/{id}")
     public Dtos.ConclusionResponse delete(@PathVariable String workspace, MemoryPrincipal principal,
             @PathVariable String id) {
@@ -112,6 +118,7 @@ public class ConclusionController {
         return Dtos.ConclusionResponse.of(conclusion);
     }
 
+    @Operation(summary = "Read a conclusion's audit trail")
     @GetMapping("/v1/workspaces/{workspace}/conclusions/{id}/events")
     public List<Dtos.EventResponse> history(@PathVariable String workspace, MemoryPrincipal principal,
             @PathVariable String id, @RequestParam(defaultValue = "100") int limit) {
@@ -148,6 +155,7 @@ public class ConclusionController {
     }
 
     /** Both directions of the reasoning tree, plus the messages underneath. */
+    @Operation(summary = "Walk a conclusion's reasoning chain")
     @GetMapping("/v1/workspaces/{workspace}/conclusions/{id}/chain")
     public Dtos.ProvenanceEntry chain(@PathVariable String workspace, MemoryPrincipal principal,
             @PathVariable String id, @RequestParam String observer, @RequestParam String observed) {

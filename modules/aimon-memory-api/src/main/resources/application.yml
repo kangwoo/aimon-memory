@@ -40,6 +40,21 @@ management:
     health:
       show-details: when-authorized
 
+springdoc:
+  # Off unless asked for. The auth interceptor covers /v1/** only, so anything served on this connector
+  # from outside that prefix answers whoever can reach the port — the same reasoning that put actuator on
+  # its own. The description a consumer should be reading is the committed docs/openapi.json, which is
+  # generated from the same configuration and reviewed in diffs; this endpoint is a convenience while
+  # developing.
+  #
+  #   AIMON_MEMORY_OPENAPI=true  ->  /v3/api-docs
+  #
+  # There is no Swagger UI to switch: the build depends on springdoc's -api starter rather than -ui,
+  # because the UI's webjar is served by Boot's static mapping whatever this flag says. See
+  # gradle/libs.versions.toml.
+  api-docs:
+    enabled: ${AIMON_MEMORY_OPENAPI:false}
+
 aimon:
   memory:
     jwt:

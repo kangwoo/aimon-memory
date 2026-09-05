@@ -31,7 +31,7 @@ docker compose up -d
 | 명령 | 무엇을 보는가 | Docker | 언제 돌리나 |
 |---|---|:-:|---|
 | `./gradlew checkAll` | 포맷·스타일·BOM, 데이터베이스가 필요 없는 165개 테스트 | 불필요 | 저장할 때마다 |
-| `./gradlew integrationTest` | Testcontainers 계층 236개 | 필요 | PR 을 올리기 전에 |
+| `./gradlew integrationTest` | Testcontainers 계층 241개 | 필요 | PR 을 올리기 전에 |
 | `./gradlew :aimon-memory-client:contractTest` | aimon-core 의 `PeerMemory` 계약 21개 | 불필요 | 아래 참조 |
 | `./gradlew :aimon-memory-worker:loadTest` | 경합 상태의 동시 읽기·쓰기 | 필요 | 워커나 큐를 건드렸을 때 |
 
@@ -109,6 +109,13 @@ replay 가 빗나갔다면 프롬프트가 바뀐 것이다. **다시 녹화하�
 ```sh
 ./gradlew test -Daimon.memory.golden.update=true    # 골든 픽스처를 검사 대신 덮어쓴다
 ./gradlew test -Daimon.memory.eval.update=true      # 랭킹 기준선을 다시 만든다
+```
+
+라우트를 더하거나 그 모양을 바꿨다면 API 서술도 같은 스위치로 다시 만든다. 데이터베이스가 필요해서 이것만
+`integrationTest` 다.
+
+```sh
+./gradlew :aimon-memory-api:integrationTest -Daimon.memory.golden.update=true
 ```
 
 두 스위치 모두 **테스트를 정의상 통과시킨다.** 그래서 이 파일들을 건드린 diff 는 그것을 만들어 낸 코드와

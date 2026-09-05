@@ -143,6 +143,12 @@ beside the service port on 8080. The worker serves no API, so actuator is its en
 that port is 9091 — there is no second connector to keep metrics off. Publish 8080; publish neither
 9090 nor 9091.
 
+The API description is off by default for the same reason. `AIMON_MEMORY_OPENAPI=true` opens
+`/v3/api-docs` on the service port, which is to say without a token. There is no reason to turn it on
+in production: the committed `docs/openapi.json` is the same document, and that one is versioned.
+Swagger UI is not shipped at all — its webjar is served by Boot's static mapping whatever this flag
+says.
+
 | Metric | Watch for |
 |---|---|
 | `aimon_memory_worker_unit_seconds` | p99 climbing means provider latency, not database |

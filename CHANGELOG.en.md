@@ -38,6 +38,13 @@ first release goes out.
 - `LICENSE` (Apache-2.0) at the repository root, the file `gradle.properties`' POM had been claiming.
 - `NOTICE` — attribution for the ranking formula's starting point, which comes from mem0
   (Apache-2.0). The reasoning is in ADR 0005.
+- `docs/openapi.json` — an OpenAPI 3.1 description of the 33 routes, their request and response
+  schemas, and the error bodies. Generated from the running application and committed; `OpenApiSpecTest`
+  fails when the two drift. The token scope each route needs is stamped on from `RoutePolicy` at
+  generation time, so no second copy of an authorisation rule exists to disagree with the one being
+  enforced. The live `/v3/api-docs` sits behind `AIMON_MEMORY_OPENAPI` and is off by default — the auth
+  interceptor covers `/v1/**` only, which is what moved actuator to its own port as well. Swagger UI is
+  not shipped: its webjar would be served by Boot's static mapping whatever that flag said.
 - Governance documents — `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`, and this file.
 - `.github/` — issue forms (bug and feature), a pull request template, dependabot, and a release
   workflow that runs on a tag push.
