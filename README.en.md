@@ -5,6 +5,7 @@
 [![ci](https://github.com/kangwoo/aimon-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/kangwoo/aimon-memory/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![JDK](https://img.shields.io/badge/JDK-21-orange.svg)](gradle/libs.versions.toml)
+[![docs](https://img.shields.io/badge/docs-kangwoo.github.io-blue.svg)](https://kangwoo.github.io/aimon-memory/)
 
 A memory system for conversational agents. Every fact it stores belongs to a directed
 **(observer, observed) pair** — `alice`'s memory of herself and `bot`'s memory of `alice` are
@@ -142,6 +143,10 @@ response schemas and the token scope each one needs. To click through them, poin
 that file. To fetch it from a running service, start with `AIMON_MEMORY_OPENAPI=true` and read
 `/v3/api-docs` — off by default, because the auth interceptor covers `/v1/**` and nothing else.
 ## Documents
+
+All of it is published at **<https://kangwoo.github.io/aimon-memory/>** — with search and a
+language switcher, built from whatever is on `main`. The list below is for reading them on GitHub
+directly.
 
 Korean is the canonical text. Every document has an English counterpart at the same path with an
 `.en.md` suffix — this file is `README.md`'s. The two specifications are the exception: they are

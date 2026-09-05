@@ -5,6 +5,7 @@
 [![ci](https://github.com/kangwoo/aimon-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/kangwoo/aimon-memory/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![JDK](https://img.shields.io/badge/JDK-21-orange.svg)](gradle/libs.versions.toml)
+[![docs](https://img.shields.io/badge/docs-kangwoo.github.io-blue.svg)](https://kangwoo.github.io/aimon-memory/)
 
 대화형 에이전트를 위한 메모리 시스템. 저장하는 모든 사실은 방향이 있는
 **(observer, observed) 쌍**에 속한다 — `alice` 가 자기 자신을 기억한 내용과 `bot` 이 `alice` 를
@@ -210,6 +211,9 @@ Maven 의 `dependencyManagement` 와 `enforcedPlatform` 은 덮어쓰기로 다�
 [`docs/openapi.json`](docs/openapi.json), 호출법은 [`docs/guide.md`](docs/guide.md) 에 있다.
 
 ## 문서
+
+전부 **<https://kangwoo.github.io/aimon-memory/>** 에 올라가 있다. 검색과 언어 전환이 붙어 있고,
+`main` 에 들어간 것이 그대로 배포된다. 아래 목록은 GitHub 에서 바로 읽을 때를 위한 것이다.
 
 정본은 한국어다. 모든 문서는 같은 경로에 `.en.md` 접미사를 붙인 영어판을 함께 둔다 — 이 문서의 영어판은
 [`README.en.md`](README.en.md) 다. 명세 두 건만 예외로 한국어만 있고, 왜 그런지와 각 절이 어디 있는지는
