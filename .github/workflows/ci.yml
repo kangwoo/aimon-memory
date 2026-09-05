@@ -39,7 +39,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: checkAll
         run: ./gradlew checkAll --no-daemon
@@ -57,7 +57,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # Testcontainers starts pgvector itself, so there is no service container here and no difference
       # between how the suite runs in CI and how it runs on a laptop.
