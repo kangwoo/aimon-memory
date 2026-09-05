@@ -13,10 +13,23 @@ docs_dir: docs
 # and drifting. Which document owns what is ADR 0008's table, and docs/README.md is
 # that table on this surface.
 
-# No `exclude_docs` either. Everything under docs/ belongs on the site, including
-# the frozen specification: it is normative, ADR 0005 rests on it, and the rest of
-# the documentation links into it constantly. scripts/mkdocs_github_links.py reads
-# this key when it exists, so adding one later is a one-line change here.
+# Two directories are in the repository but not on the site. `adr/` is the record of
+# how decisions were reached and `spec/` is the frozen 2026-08-31 specification the
+# implementation was written from -- both are the project's own working record rather
+# than what a reader arriving at the site is looking for, which is what this thing is
+# and how to use it.
+#
+# They are excluded, not deleted: both stay readable on GitHub, and
+# scripts/mkdocs_github_links.py reads THIS list to rewrite links pointing into them
+# into GitHub URLs at render time. So the ~100 references from architecture, concepts
+# and the guide keep working on both surfaces, and adding a directory here is the
+# whole change -- the hook follows.
+#
+# The leading slash is load-bearing: a bare `adr/` is a gitignore pattern that matches
+# at any depth, which would also swallow a nested `adr/` if one ever appeared.
+exclude_docs: |
+  /adr/
+  /spec/
 
 theme:
   name: material
@@ -77,10 +90,10 @@ plugins:
       # default locale is what builds at the site root. This matches the repository's
       # own convention exactly: `guide.md` is canonical, `guide.en.md` is its pair.
       #
-      # The two files under spec/ have no English pair on purpose (ADR 0005 -- there
-      # is one specification, and a translation would make that two). They fall back
-      # to the Korean source on /en/, which is the honest outcome: the page exists,
-      # and it is the document the implementation was written from.
+      # Every page that reaches the site has both halves, so nothing falls back. The
+      # only Korean-only documents in the repository are the two under spec/, and
+      # spec/ is excluded above -- so the one case that would have needed a fallback
+      # is the one case that is not built.
       languages:
         - locale: ko
           default: true

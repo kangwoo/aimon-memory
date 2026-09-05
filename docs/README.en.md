@@ -18,11 +18,15 @@ building and running it.
 | **The architecture** | [Architecture](architecture.en.md) — goals, constraints, context, building blocks, quality, risks (arc42) |
 | **To operate it** | [Runbook](runbook.en.md) — deployment, migrations, observability, load |
 | **The exact shape of a route** | [`openapi.json`](openapi.json) — 33 routes, schemas, scopes |
-| **Why a decision went that way** | [ADRs](adr/README.en.md) — where the implementation departed from the specification, and why |
-| **The original specification** | [Specification and plan](spec/README.en.md) — frozen as of 2026-08-31 |
+| **Why a decision went that way** | [ADRs](adr/README.en.md) — where the implementation departed from the specification, and why *(GitHub)* |
+| **The original specification** | [Specification and plan](spec/README.en.md) — frozen as of 2026-08-31 *(GitHub)* |
 
 If you arrived from aimon-core, start at [ADR 0007](adr/0007-aimon-core-boundary.en.md) — it draws
 the boundary between the two repositories.
+
+**The decision records and the specification are not published here.** Both are the record of how
+this project got where it is, rather than what someone arriving to find out what it is and how to
+use it is looking for. They stay in the repository, and the links above go to GitHub.
 
 ## Each document owns something
 

@@ -51,9 +51,10 @@ jobs:
         run: pip install -r docs-requirements.txt
 
       # --strict turns MkDocs' link warnings into failures. It is only safe to ask
-      # for that because scripts/mkdocs_github_links.py rewrites the links that
-      # intentionally point outside docs/ — at gradle/libs.versions.toml today — into
-      # GitHub URLs at render time.
+      # for that because scripts/mkdocs_github_links.py rewrites, at render time, the
+      # links that cannot resolve on the site: the ones pointing outside docs/, and the
+      # roughly one hundred pointing into adr/ and spec/, which mkdocs.yml keeps off
+      # the site but the repository still carries.
       #
       # This is the gate that keeps the cross-references honest. These documents lean
       # hard on anchors into one another (architecture §8 alone links nine sections of
