@@ -312,6 +312,8 @@ Stated plainly rather than left to be discovered.
 
 - `docs/spec/aimon-memory-design.md` — the specification
 - `docs/spec/aimon-memory-build-plan.md` — the plan this was built from
-- `docs/adr/` — where this deviates from either, and why, with the evidence
+- `docs/adr/` — where this deviates from either, and why, with the evidence.
+  [ADR 0007](docs/adr/0007-aimon-core-boundary.md) is the one to read first if you arrived from aimon-core:
+  it draws the boundary between the two repositories
 - `docs/runbook.md` — deploying, tuning, and what to check when something is wrong
 - `docs/dashboards/` — Grafana
