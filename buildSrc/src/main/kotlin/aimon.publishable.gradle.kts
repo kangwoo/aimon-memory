@@ -4,6 +4,9 @@ import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import com.vanniktech.maven.publish.SonatypeHost
 
+import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.publish.maven.MavenPublication
+
 plugins {
     id("com.vanniktech.maven.publish")
 }
@@ -25,6 +28,29 @@ plugins.withId("java-library") {
                 sourcesJar = true,
             ),
         )
+    }
+
+    // Write the versions this build actually resolved into the POM.
+    //
+    // No module declares a version for anything Spring's dependency-management supplies — that is the point
+    // of using it — so without this the generated POM carries those dependencies with no version at all.
+    // `aimon-memory-store` published eleven dependencies of which seven had none: postgresql, jackson,
+    // flyway, spring-jdbc. Gradle consumers survive on the module metadata; a Maven consumer reads the POM
+    // and cannot resolve it.
+    //
+    // Gradle only ever complained about `aimon-memory-core`, and that is a coincidence of its shape rather
+    // than the extent of the problem. The validation fires when a publication's dependencies are *all*
+    // versionless, and core is the only module declaring none of its own — its single published dependency
+    // is the `slf4j-api` the conventions add. Everything else slipped past the check with a POM that was
+    // already wrong, and core being the root the other eight depend on is the only reason none of it
+    // reached Central.
+    extensions.configure<PublishingExtension> {
+        publications.withType(MavenPublication::class.java).configureEach {
+            versionMapping {
+                usage("java-api") { fromResolutionResult() }
+                usage("java-runtime") { fromResolutionResult() }
+            }
+        }
     }
 }
 
