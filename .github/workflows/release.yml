@@ -25,7 +25,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # ORG_GRADLE_PROJECT_VERSION_NAME rather than -PVERSION_NAME on each line: Gradle reads that
       # env var as a project property, so every step below sees the same version without repeating it
