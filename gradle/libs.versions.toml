@@ -26,7 +26,7 @@ springdoc       = "2.9.0"
 assertj         = "3.27.6"
 spotless        = "6.25.0"
 checkstyle      = "10.12.5"
-mavenPublish    = "0.30.0"
+mavenPublish    = "0.37.0"
 
 # aimon-core is the consumer, and its floor is Java 17. Only aimon-memory-client is compiled to it —
 # every other module here is a service and stays on the toolchain above. Kept as a version rather than a
