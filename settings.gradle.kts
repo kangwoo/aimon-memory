@@ -1,7 +1,14 @@
 rootProject.name = "aimon-memory"
 
 dependencyResolutionManagement {
-    repositories { mavenCentral() }
+    // TEMPORARY, remove with the `0.3.0-SNAPSHOT` pin in gradle/libs.versions.toml. `mavenLocal()` is here
+    // only so this build can resolve `at.aimon.core:aimon-memory-testkit`, which the contract suite in
+    // `aimon-memory-client` subclasses and which is not on Central until aimon-core 0.3.0 ships. Ordered
+    // after Central so a released artifact always wins over whatever a `publishToMavenLocal` left behind.
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
 }
 
 include(

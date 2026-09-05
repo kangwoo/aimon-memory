@@ -21,6 +21,10 @@ allprojects {
 
     repositories {
         mavenCentral()
+        // TEMPORARY, and paired with the same line in settings.gradle.kts — see the reason there. Both are
+        // needed: `dependencyResolutionManagement` governs the modules, this block governs the root project
+        // and anything resolved outside that management.
+        mavenLocal()
     }
 }
 

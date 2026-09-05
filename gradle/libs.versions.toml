@@ -22,7 +22,12 @@ mavenPublish    = "0.30.0"
 # every other module here is a service and stays on the toolchain above. Kept as a version rather than a
 # literal so the two numbers that have to move together sit next to each other.
 javaCompat      = "17"
-aimonCore       = "0.2.4"
+# TEMPORARY: 0.3.0 is the release that carries `aimon-memory-testkit`, and it has not shipped. Pinned to the
+# snapshot so `aimon-memory-client` can subclass the contract suite now; put back to a released `0.3.0` (and
+# drop `mavenLocal()` from settings.gradle.kts and build.gradle.kts) as soon as that release is on Central.
+# Reproduce the snapshot with, from an aimon-core checkout:
+#   ./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
+aimonCore       = "0.3.0-SNAPSHOT"
 
 [libraries]
 jooq              = { module = "org.jooq:jooq",                            version.ref = "jooq" }
