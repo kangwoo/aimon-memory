@@ -11,7 +11,7 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.EntityRef;
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
-import at.aimon.memory.store.repo.EntityRepository;
+import at.aimon.memory.core.spi.EntityStore;
 
 /**
  * Turns extracted entity names into nodes and pair-scoped edges.
@@ -22,10 +22,10 @@ import at.aimon.memory.store.repo.EntityRepository;
 @Service
 public class EntityPipeline {
 
-    private final EntityRepository entities;
+    private final EntityStore entities;
     private final Embedder embedder;
 
-    public EntityPipeline(EntityRepository entities, Embedder embedder) {
+    public EntityPipeline(EntityStore entities, Embedder embedder) {
         this.entities = entities;
         this.embedder = embedder;
     }
@@ -36,24 +36,25 @@ public class EntityPipeline {
     public void linkAll(PairKey pair, Map<String, List<String>> namesByConclusion) {
         Map<String, String> distinct = new LinkedHashMap<>();
         namesByConclusion.values().stream().flatMap(List::stream)
-                .forEach(name -> distinct.putIfAbsent(EntityRepository.normalize(name), name));
+                .forEach(name -> distinct.putIfAbsent(entities.normalizeName(name), name));
         if (distinct.isEmpty()) {
             return;
         }
 
         List<String> displayNames = List.copyOf(distinct.values());
-        List<float[]> vectors = embedder.embedBatch(displayNames, EmbedPurpose.ENTITY);
+        List<float[]> vectors = Embedder.requireAligned(displayNames,
+                embedder.embedBatch(displayNames, EmbedPurpose.ENTITY));
 
         Map<String, EntityRef> resolved = new LinkedHashMap<>();
         for (int i = 0; i < displayNames.size(); i++) {
             String display = displayNames.get(i);
-            resolved.put(EntityRepository.normalize(display),
+            resolved.put(entities.normalizeName(display),
                     entities.upsert(pair.workspaceName(), display, null, vectors.get(i)));
         }
 
         namesByConclusion.forEach((conclusionId, names) -> {
             for (String name : names) {
-                EntityRef entity = resolved.get(EntityRepository.normalize(name));
+                EntityRef entity = resolved.get(entities.normalizeName(name));
                 if (entity != null) {
                     entities.link(pair.workspaceName(), entity.id(), conclusionId, pair);
                 }
@@ -94,7 +95,7 @@ public class EntityPipeline {
         }
         List<String> names = new ArrayList<>(pending.size());
         pending.forEach(entity -> names.add(entity.nameDisplay()));
-        List<float[]> vectors = embedder.embedBatch(names, EmbedPurpose.ENTITY);
+        List<float[]> vectors = Embedder.requireAligned(names, embedder.embedBatch(names, EmbedPurpose.ENTITY));
         for (int i = 0; i < pending.size(); i++) {
             entities.updateEmbedding(pending.get(i).id(), vectors.get(i));
         }

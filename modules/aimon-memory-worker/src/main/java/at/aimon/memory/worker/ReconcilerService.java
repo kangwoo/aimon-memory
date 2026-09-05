@@ -16,10 +16,10 @@ import at.aimon.memory.core.key.WorkUnitKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.EventType;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
 import at.aimon.memory.engine.entity.EntityPipeline;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.DreamRepository;
 import at.aimon.memory.store.repo.QueueRepository;
 import at.aimon.memory.store.repo.WorkspaceRepository;
@@ -58,7 +58,7 @@ public class ReconcilerService {
      */
     private static final int MAX_DREAM_REQUEUES = 3;
 
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
     private final QueueRepository queue;
     private final WorkspaceRepository workspaces;
     private final EntityPipeline entities;
@@ -66,7 +66,7 @@ public class ReconcilerService {
     private final Embedder embedder;
     private final Clock clock;
 
-    public ReconcilerService(ConclusionRepository conclusions, QueueRepository queue, WorkspaceRepository workspaces,
+    public ReconcilerService(ConclusionStore conclusions, QueueRepository queue, WorkspaceRepository workspaces,
             EntityPipeline entities, DreamRepository dreams, Embedder embedder, Clock clock) {
         this.conclusions = conclusions;
         this.queue = queue;
@@ -188,7 +188,10 @@ public class ReconcilerService {
         }
         List<String> texts = pending.stream().map(Conclusion::content).toList();
         try {
-            List<float[]> vectors = embedder.embedBatch(texts, EmbedPurpose.DOCUMENT);
+            // Inside the try, so a misaligned batch marks the rows sync-failed and is visible in the
+            // audit log, exactly as a provider failure is — rather than throwing out of the loop
+            // partway and leaving some rows updated and the rest silently unsearchable again.
+            List<float[]> vectors = Embedder.requireAligned(texts, embedder.embedBatch(texts, EmbedPurpose.DOCUMENT));
             for (int i = 0; i < pending.size(); i++) {
                 conclusions.updateEmbedding(pending.get(i).id(), vectors.get(i));
             }

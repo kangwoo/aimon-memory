@@ -75,10 +75,10 @@ tasks.register("checkAll") {
     // this build publishes — so the gate picks up its `verifyBom` in place of the test task it lacks.
     dependsOn(":aimon-memory-bom:verifyBom")
     // aimon-core's PeerMemory contract suite, which is a Test task of its own rather than part of
-    // `aimon-memory-client`'s `test` — the artifact it subclasses is not on Central yet, so the source set
-    // skips itself where it does not resolve (see that module's build file). Named here rather than left
-    // out: on a machine that has the testkit the suite belongs in the gate, and on one that does not it
-    // costs a skipped task and a line saying why.
+    // `aimon-memory-client`'s `test` — the artifact it subclasses is a snapshot rather than a release, so the
+    // source set skips itself where it does not resolve (see that module's build file). It does resolve now,
+    // here and on CI, off Central's snapshot repository: expect this to run, and read a skip as a broken
+    // environment rather than the normal case.
     dependsOn(":aimon-memory-client:contractTest")
 }
 

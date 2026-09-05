@@ -40,7 +40,8 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement through GitHub's [report abuse](https://github.com/contact/report-abuse) form. All complaints will be reviewed and investigated promptly and fairly.
 
-<!-- TODO: decide on a project contact email and add it to the reporting channel above -->
+That is currently the only reporting channel. There is no project contact email: there is one
+maintainer, and an address nobody watches is worse than none.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 

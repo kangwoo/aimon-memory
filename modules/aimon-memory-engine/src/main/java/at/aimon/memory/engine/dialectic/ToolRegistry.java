@@ -16,11 +16,11 @@ import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Conclusion;
 import at.aimon.memory.core.model.Message;
 import at.aimon.memory.core.model.ScoredConclusion;
+import at.aimon.memory.core.spi.ConclusionStore;
 import at.aimon.memory.core.spi.llm.ToolDef;
 import at.aimon.memory.recall.ProvenanceService;
 import at.aimon.memory.recall.RecallRequest;
 import at.aimon.memory.recall.RecallService;
-import at.aimon.memory.store.repo.ConclusionRepository;
 import at.aimon.memory.store.repo.MessageRepository;
 
 /**
@@ -57,10 +57,10 @@ public class ToolRegistry {
     private final RecallService recall;
     private final ProvenanceService provenance;
     private final MessageRepository messages;
-    private final ConclusionRepository conclusions;
+    private final ConclusionStore conclusions;
 
     public ToolRegistry(RecallService recall, ProvenanceService provenance, MessageRepository messages,
-            ConclusionRepository conclusions) {
+            ConclusionStore conclusions) {
         this.recall = recall;
         this.provenance = provenance;
         this.messages = messages;
@@ -157,9 +157,20 @@ public class ToolRegistry {
                          "required":["query","from","to"],"additionalProperties":false}
                         """, arguments -> {
                     JsonNode node = parse(arguments);
+                    // The same three-step parse messages_by_date uses, and for the same reason: the
+                    // model writes these arguments, and it writes "2024-01-15" as readily as a full
+                    // instant. Handing the raw string to the filter meant FilterCompiler rejected the
+                    // bare date and the tool answered "Tool failed", while the identical argument
+                    // worked on messages_by_date — so the model had no way to learn the difference
+                    // and simply retried, spending iterations on a distinction that was an accident.
+                    //
+                    // Normalised through Instant.toString so the filter always receives the one form
+                    // FilterCompiler's TIMESTAMP coercion is written against.
                     Filter window = Filter.and(
-                            new Filter.Cmp("last_reinforced_at", FilterOp.GTE, node.path("from").asText()),
-                            new Filter.Cmp("last_reinforced_at", FilterOp.LT, node.path("to").asText()));
+                            new Filter.Cmp("last_reinforced_at", FilterOp.GTE,
+                                    instant(node.path("from").asText(), Instant.EPOCH).toString()),
+                            new Filter.Cmp("last_reinforced_at", FilterOp.LT,
+                                    instant(node.path("to").asText(), Instant.now()).toString()));
                     var response = recall.recall(
                             new RecallRequest(pair, node.path("query").asText(""), limit(node), window, null, false));
                     return renderHits(response.hits());

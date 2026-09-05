@@ -21,7 +21,24 @@ public final class Jsonb {
     private Jsonb() {
     }
 
-    public static PGobject of(Object value) {
+    /**
+     * A {@code jsonb} bind parameter for {@code JdbcClient.params(Object...)}.
+     *
+     * <p>Declared as {@code Object} rather than {@code PGobject} on purpose. This is the only
+     * production signature in the build that named a driver type, and being {@code public} it was
+     * {@code aimon-memory-store}'s ABI — which forced the postgresql dependency to be {@code api} and
+     * put the driver on the compile classpath of recall, engine, api and worker, none of which may
+     * touch JDBC. Narrowing the class itself is not available: {@code Jsonb} lives in
+     * {@code ..store} and nine of its eleven callers in {@code ..store.repo}, so package-private
+     * would not reach them. Narrowing the type it hands back does the same job — the driver is now an
+     * implementation detail of this module, and {@code ModuleDependencyTest}'s
+     * {@code jdbcIsConfinedToThePersistenceModule} stops being the only thing standing between an
+     * accidental import and a release.
+     *
+     * <p>Every call site passes the result straight into {@code params(...)}, so nothing reads the
+     * concrete type. Give it one back only alongside a reason the caller needs it.
+     */
+    public static Object of(Object value) {
         try {
             PGobject object = new PGobject();
             object.setType("jsonb");

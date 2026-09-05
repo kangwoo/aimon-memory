@@ -202,7 +202,7 @@ public final class RemotePeerMemory implements PeerMemory {
         params.put("size", String.valueOf(SNAPSHOT_PAGE_SIZE));
         // A 404 is a workspace or peer that does not exist, which for a snapshot is the same answer as a peer with
         // nothing recorded: there is no memory to inject.
-        JsonNode body = http.get("/v1/workspaces/" + workspace + "/conclusions", params);
+        JsonNode body = http.get(MemoryHttp.path("v1", "workspaces", workspace, "conclusions"), params);
         if (body == null) {
             return Optional.empty();
         }
@@ -273,7 +273,8 @@ public final class RemotePeerMemory implements PeerMemory {
             // cannot, and it is what makes a bad ranking diagnosable from the caller's side.
             body.put("explain", true);
 
-            JsonNode response = http.post("/v1/workspaces/" + workspace + "/recall", body, options.getTimeout());
+            JsonNode response = http.post(MemoryHttp.path("v1", "workspaces", workspace, "recall"), body,
+                    options.getTimeout());
             if (response == null) {
                 return List.of();
             }
@@ -330,7 +331,8 @@ public final class RemotePeerMemory implements PeerMemory {
         query.getSessionId().filter(session -> !session.isBlank()).ifPresent(session -> body.put("session", session));
         body.put("reasoningLevel", reasoningLevelOf(query.getLevel()));
 
-        JsonNode response = http.post("/v1/workspaces/" + workspace + "/chat", body, options.getChatTimeout());
+        JsonNode response = http.post(MemoryHttp.path("v1", "workspaces", workspace, "chat"), body,
+                options.getChatTimeout());
         String answer = response == null ? "" : response.path("answer").asText("");
         return DialecticResponse.builder().answer(answer).observationsConsidered(List.of())
                 // The service does not report usage on this route, and a fabricated zero would be indistinguishable
@@ -376,7 +378,8 @@ public final class RemotePeerMemory implements PeerMemory {
             body.put("content", draft.getContent());
             draft.getSessionId().ifPresent(session -> body.put("session", session));
 
-            JsonNode response = http.post("/v1/workspaces/" + workspace + "/conclusions", body, options.getTimeout());
+            JsonNode response = http.post(MemoryHttp.path("v1", "workspaces", workspace, "conclusions"), body,
+                    options.getTimeout());
             if (response == null) {
                 throw new RemoteMemoryException("workspace " + workspace + " does not exist", 404, "not_found");
             }
@@ -434,7 +437,7 @@ public final class RemotePeerMemory implements PeerMemory {
             return MemoryIngestReceipt.builder().accepted(0).derived(false).build();
         }
 
-        http.post("/v1/workspaces/" + workspace + "/sessions/" + request.getSessionId() + "/messages", body,
+        http.post(MemoryHttp.path("v1", "workspaces", workspace, "sessions", request.getSessionId(), "messages"), body,
                 options.getTimeout());
         return MemoryIngestReceipt.builder().accepted(messages.size())
                 // Never true. Ingestion returns as soon as the messages are queued; the worker derives afterwards,

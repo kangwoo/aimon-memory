@@ -231,3 +231,41 @@ fresh clone and every CI runner.
 `mavenLocal()` stays in `settings.gradle.kts` and `build.gradle.kts` for that one coordinate. Both
 lines and the second version still come out when 0.3.0 reaches Central. What changed is that until
 then, nothing on the path from `git clone` to `checkAll` reaches through them.
+
+---
+
+## Addendum · 2026-09-05 — `mavenLocal()` became Central's snapshots, and the contract tier runs everywhere
+
+The closing paragraph of the addendum above is no longer true. Left standing, it makes this document
+contradict the build.
+
+`mavenLocal()` rescued the fresh clone, but only half of it. `checkAll` passed everywhere again, and
+the price was that the contract tier ran on **exactly one machine — whichever had published the
+testkit by hand.** A CI runner has an empty `~/.m2`, so it always skipped, and a green tick therefore
+said nothing about whether this repository honours aimon-core's contract. The suite exists to end the
+state where only one of two backends claiming the same contract actually runs it; this reproduced
+that state inside CI.
+
+The fix was not a release but a **readable repository**. `at.aimon.core:aimon-memory-testkit:0.3.0-SNAPSHOT`
+is published to Central's snapshot repository. The first release is still 0.3.0, but a snapshot is
+readable by every machine, and that was all this tier needed.
+
+| Then | Now |
+|---|---|
+| `mavenLocal()` | `centralSnapshots` — `https://central.sonatype.com/repository/maven-snapshots/` |
+| the coordinate in one machine's `~/.m2` | published to Central's snapshots; a fresh clone and a CI runner both resolve it |
+| CI always skipped the 21 cases | CI runs them; `checkAll` names the task |
+| a green CI silent about the contract | a green CI means the contract suite passed |
+
+The repository is scoped to that one coordinate with `includeModule("at.aimon.core", "aimon-memory-testkit")`
+and ordered after Central. It holds unreleased builds of everything in aimon-core, so leaving it open
+would let in a snapshot nobody chose.
+
+**The skip stays.** Not because there is no reason to remove it, but because skipping now means
+something else: it used to be the ordinary fact that a machine lacked the artifact, and it is now the
+signal that a coordinate failed to resolve. `verifyContractTestClasspath` and `verifyContractTestRan`
+are still needed for the same reason.
+
+Splitting `aimonTestkit` from `aimonCore` stands. When 0.3.0 reaches Central, both snapshot
+repository blocks and the second version come out together, and the `contractTest` source set folds
+back into `src/test`.

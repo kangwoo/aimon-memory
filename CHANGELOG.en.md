@@ -48,6 +48,17 @@ first release goes out.
 - Governance documents — `CONTRIBUTING`, `CODE_OF_CONDUCT`, `SECURITY`, and this file.
 - `.github/` — issue forms (bug and feature), a pull request template, dependabot, and a release
   workflow that runs on a tag push.
+- **A documentation site** at <https://kangwoo.github.io/aimon-memory/> — MkDocs Material with a
+  Korean/English switcher and search, deployed to GitHub Pages from whatever is on `main`. The build
+  runs `--strict`, so a broken cross-reference fails CI rather than reaching the published site.
+  `validation.links.anchors` is turned on alongside it, because MkDocs logs a broken anchor at INFO
+  by default and `--strict` would not catch it.
+- ADR 0008 — the decision to gather the architecture description into one arc42 document
+  (`docs/architecture.md`) and give every document a subject it owns. The module graph, design
+  notes and gate lists that had accumulated in the README moved there.
+- `docs/adr/` and `docs/spec/` are kept off the site. They stay in the repository, and the 80 links
+  pointing into them are rewritten to GitHub URLs at render time by
+  `scripts/mkdocs_github_links.py`.
 
 ### Changed
 
@@ -78,6 +89,46 @@ first release goes out.
   and a Testcontainers BOM. The first two predate ADR 0002 deciding against them. The rule at the top
   of the file now runs both ways: if it is not there it is not used, and if nothing uses it, it is
   not there.
+- **Published POMs now carry resolved versions.** No module declares a version for anything Spring's
+  dependency-management supplies — that is the point of using it — so the generated POMs shipped
+  those dependencies with no version at all; `aimon-memory-store` published 7 of 11 that way. A
+  Gradle consumer survives on the module metadata, but a Maven consumer reads the POM and cannot
+  resolve it. `versionMapping` writes what the build actually resolved, and the versionless
+  dependency count is now zero across all nine published coordinates.
+- **The store SPIs were sealed.** `ConclusionStore` grew from 5 methods to 16 and `EntityStore` from
+  2 to 11, and recall, engine, api and worker now take those types instead of concrete classes like
+  `ConclusionRepository`. Until then the claim they backed — that the store is replaceable — was not
+  true: the interfaces existed and nothing called them. The rule is one line: a method called from
+  outside `aimon-memory-store` belongs on an SPI. The remaining nine repositories are still concrete,
+  and `SpiSurfaceTest` names those nine — an inventory rather than a todo list. `EventLog` is
+  unchanged.
+- **Module placement and the assembly graph were tidied.** `HashingEmbedder` moved from `engine` to
+  `embed`, and `MemoryConfiguration` was split: `RecallConfiguration` is new, `AnalyzerRegistry` and
+  `TextProperties` went to store, `Embedder` and `EmbedProperties` to embed. `recall` now assembles
+  without `engine`. Dependencies narrowed with it — `text` came out of `api`, `llm` and `embed` came
+  out of `worker`, and store's postgresql dropped from `api` to `implementation`.
+- **Three public types on published modules moved or narrowed.** `Bm25.CorpusStats` is now
+  `at.aimon.memory.core.model.CorpusStats` and `EntityRepository.EntityLink` is now
+  `at.aimon.memory.core.model.EntityLink` — both are types the SPI passes across, and both were nested
+  inside a class above it, where `core.spi` could not name them in its own signatures. `Jsonb.of`
+  narrowed its return type from `PGobject` to `Object`: that was the only place a driver type appeared
+  in `aimon-memory-store`'s ABI, which is why postgresql had to be `api`, which is why the driver sat
+  on the compile classpath of recall, engine, api and worker. **There are no consumers** — no release,
+  no tags, and the version is `0.1.0-SNAPSHOT` — so none of the three breaks anything. That is the
+  reason for doing it before the first release rather than after.
+- **An unknown provider name now fails at startup.** `AIMON_MEMORY_LLM_PROVIDER=openal` used to be
+  treated as `none`, so a deployment started cleanly and then answered every model call with
+  `llm_not_configured`. It is `unknown_llm_provider` now, and only `none` and the empty string count
+  as "off". The embedder behaves the same way (`unknown_embed_provider`).
+- `?tokens` is capped at 128000 (`Bounds.MAX_CONTEXT_TOKENS`). The budget is the only thing bounding
+  a Tier 0 response, so an unbounded budget was an unbounded response — every other paging parameter
+  here already went through `Bounds`.
+- **The contract suite resolves from Central's snapshot repository.**
+  `at.aimon.core:aimon-memory-testkit` has no release — 0.3.0 is the first — but its snapshot is
+  published, and the build opens that repository for that one coordinate. It replaced `mavenLocal()`,
+  and the difference is the point: a local publish resolves on exactly one machine, so the contract
+  tier ran there and skipped everywhere else, CI included. The 21 cases now run on a fresh clone and
+  on a runner. The reasoning is ADR 0007's third addendum.
 
 ### Fixed
 
@@ -130,14 +181,48 @@ first release goes out.
   name, so the observation came back with a subject unequal to the subject just handed in. The
   contract suite found it, and that an adapter can send the right bytes and parse the right bytes
   and still mean something else is the argument for running that tier at all.
+- **The message constraints on an ingest request were never evaluated. They are now, and behaviour
+  changes with them.** `CreateMessages.messages` was missing `@Valid`, so Bean Validation stopped at
+  the list and never descended into its elements. Every `@NotBlank` on `NewMessage` was a dead letter,
+  and **a message with blank or whitespace-only content was accepted with a 200 and stored.** It is a
+  **400** now. The blank `peer` that appeared to be rejected was in fact caught much deeper, by the
+  key encoder, and reported as `bad_key` — which is what hid the fact that this layer was doing
+  nothing. **This is visible to consumers:** a client that sent empty content and got a 200 now gets a
+  400. Restoring the contract the DTO already declared was the call; a stored blank message was never
+  derived from or recalled anyway, it only took up room.
+- **The same defect was cleared from adding session peers.** `AddSessionPeers.peers` had no `@Valid`,
+  so `SessionPeerSpec.peer`'s `@NotBlank` was dead. `{"peers":[{"peer":"   "}]}` **was accepted with a
+  200, and a peer row whose name was nothing but whitespace was created and joined to the session.**
+  It is a 400 `bad_request` now. The one case that had been caught — `peer` as `null`, which failed
+  as a 409 `constraint_violation` — now arrives as a 400 as well. **Visible to consumers.**
+- **The dialectic's conversation history was the same story.** `ChatRequest.history` had no `@Valid`,
+  so neither `@NotBlank` on `ChatTurn` was evaluated, and a turn with empty `content` or `role` **was
+  forwarded to the model provider as-is.** Both `POST /chat` and `/chat/stream` return 400 now.
+  **Visible to consumers.**
+- Those two and `CreateMessages` were **the same defect in three places**: without `@Valid` on a field
+  holding a list, Bean Validation stops at the list and never descends into the elements, so the
+  element type's constraints are declared and never evaluated. Why it stayed invisible for so long is
+  worth recording. **The published schema was right the whole time.** springdoc reads the annotations
+  on the referenced type, so `docs/openapi.json` has always carried `minLength: 1` on `ChatTurn.role`,
+  `ChatTurn.content` and `SessionPeerSpec.peer`. The document said the constraint was enforced; the
+  runtime did not enforce it. **That is why this change touched no line of `docs/openapi.json`** — the
+  implementation caught up with the document, not the other way round.
+- One message's text is now bounded — `Requests.MAX_CONTENT_CHARS`, 32000 characters. The batch has
+  been capped at a hundred for a long time and the message itself was not, so the size of a request —
+  and of a `GET /context` **response** — was decided by whatever the largest stored message happened
+  to be. 32000 characters is 8191 tokens at the usual four-characters-per-token approximation, the
+  point where `OpenAiEmbedder` truncates its input: text past it is cut before it becomes a vector, so
+  storing it means storing a tail that semantic recall can never see. Refusing it beats doing that
+  silently. It appears in `docs/openapi.json` as `maxLength: 32000`.
 - **A fresh clone did not build.** `aimonCore` was pinned to `0.3.0-SNAPSHOT`, which is not on
   Central, so `:aimon-memory-client:compileJava` failed on every machine that had not published the
   snapshot itself. aimon-core is back on the released 0.2.4, and the contract suite — whose testkit
-  is on no remote repository — moved to a source set that skips itself when that coordinate does not
-  resolve. The two ways that source set could go quiet — a lenient resolution swallowing failures
+  was on no remote repository at the time — moved to a source set that skips itself when that
+  coordinate does not resolve. The two ways that source set could go quiet — a lenient resolution swallowing failures
   other than the testkit's, and a `Test` task passing with no tests discovered — are held down by
-  `verifyContractTestClasspath` and `verifyContractTestRan`. CI has no testkit and so always skips
-  this tier, which means nothing outside the build would notice it going empty.
+  `verifyContractTestClasspath` and `verifyContractTestRan`. Publishing the testkit to Central's
+  snapshots afterwards made the tier run everywhere, CI included (see Changed above); the skip
+  remains for the case where the coordinate stops resolving.
 
 ### Security
 
@@ -148,5 +233,9 @@ first release goes out.
   that ends a leaked token. The configured default is checked **at startup**, not only at issue time.
 - The `RoutePolicy` route allowlist and `RoutePolicyCoverageTest`. A route with no entry is refused,
   and a live handler mapping missing from the table fails the build.
+- `DatabaseCredentialCheck` — startup is refused when the default password committed in this
+  repository is still in use against a database that is not on this host (`default_db_password`).
+  Anyone who has read the repository knows that value. The local flows (`docker compose`,
+  Testcontainers) are on loopback and pass unchanged.
 
 [Unreleased]: https://github.com/kangwoo/aimon-memory/commits/main

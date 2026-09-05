@@ -74,10 +74,22 @@ public final class RecordingChatBackend implements ChatBackend {
             return chunks.stream();
         }
         if (mode == LlmMode.LIVE) {
+            // Handed over unconsumed and unclosed on purpose: this is the provider's own stream, and
+            // closing it here would end the exchange before the caller has read a byte. The close
+            // obligation travels with it — a Stream's close handler survives the map and filter
+            // stages between here and ChatController, which is where the try-with-resources is.
             return delegate.stream(call);
         }
         // Recording a stream means consuming it, so the caller gets a replay of what was captured.
-        List<String> chunks = delegate.stream(call).toList();
+        //
+        // In a try-with-resources even though toList exhausts the stream, which would release the
+        // exchange on its own: toList only gets to finish if every upstream stage does, and those
+        // stages parse provider JSON. One malformed chunk and the exchange is abandoned mid-body
+        // with nothing to close it.
+        List<String> chunks;
+        try (Stream<String> live = delegate.stream(call)) {
+            chunks = live.toList();
+        }
         fixtures.write(key, FixtureKey.canonical(call, true), null, chunks);
         return chunks.stream();
     }

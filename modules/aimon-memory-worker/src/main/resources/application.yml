@@ -4,6 +4,9 @@ spring:
   datasource:
     url: ${AIMON_MEMORY_DB_URL:jdbc:postgresql://localhost:5432/aimon_memory}
     username: ${AIMON_MEMORY_DB_USER:aimon_memory}
+    # The compose stack's password, kept for the local flow and bounded by DatabaseCredentialCheck,
+    # which refuses to start when it is still in use against a database that is not on this host.
+    # The API's application.yml carries the full reasoning.
     password: ${AIMON_MEMORY_DB_PASSWORD:aimon_memory}
     hikari:
       # Sized against worker concurrency, not request rate. Each work unit holds a connection only

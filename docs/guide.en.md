@@ -231,7 +231,8 @@ curl -s localhost:8080/v1/workspaces/demo/sessions/s1/peers "${auth[@]}"       #
 curl -s -X DELETE localhost:8080/v1/workspaces/demo/sessions/s1/peers/alice "${auth[@]}"
 ```
 
-`PUT` replaces the roster wholesale; `POST` adds to it.
+`PUT` replaces the roster wholesale; `POST` adds to it. A `peer` **cannot be blank** — a
+whitespace-only name is a 400.
 
 Membership has windows. A peer who left and came back keeps what they heard the first time without
 gaining the gap in between, and a message is never filed under someone who was not present for it.
@@ -253,6 +254,9 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/sessions/s1/messages "${auth[@
 ```
 
 - At most **100 messages** per request.
+- `content` **cannot be blank and cannot exceed 32000 characters.** Both are a 400. The ceiling is
+  8191 tokens at the usual four-characters-per-token approximation, which is where the embedder
+  truncates its input — accepting longer text would store a tail that semantic recall can never see.
 - `metadata` is free-form JSON. The system stores it and does not interpret it.
 - **Returns immediately.** The model call happens later, in the worker.
 
@@ -376,7 +380,7 @@ curl -s -G localhost:8080/v1/workspaces/demo/sessions/s1/context "${auth[@]}" \
 
 | Parameter | Default | What it does |
 |---|--:|---|
-| `tokens` | 4000 | The whole budget, split 40% summary / 60% verbatim |
+| `tokens` | 4000 | The whole budget, split 40% summary / 60% verbatim. Capped at 128000 |
 | `target` | the session name | Whose point of view to render for |
 | `perspective` | — | Rendering perspective |
 
@@ -468,7 +472,9 @@ Alongside `answer`, the response carries `iterations`, `stoppedAtLimit`, and wha
 called in `toolCalls`. `stoppedAtLimit: true` means the model ran out of iterations before
 finishing — raise the level or narrow the question.
 
-`history` accepts up to 500 turns. For structured output, pass a JSON schema in `responseFormat`.
+`history` accepts up to 500 turns. Each turn's `role` and `content` **cannot be blank** — an empty
+turn is a 400, on `/chat` and `/chat/stream` alike. For structured output, pass a JSON schema in
+`responseFormat`.
 
 Streaming is `POST .../chat/stream` over SSE, with a five-minute timeout.
 
@@ -808,11 +814,21 @@ The body is always `{"code": "...", "message": "..."}`.
 | `bad_lifetime` | 400 | Over 30 days, or not positive |
 | `bad_reasoning_level` | 400 | Not one of `minimal` `low` `medium` `high` `max` |
 | `batch_too_large` | 400 | More than 100 messages in one request |
+| `bad_request` | 400 | The body is not JSON, or a field constraint failed — blank message `content` (and over 32000 characters), a blank `peer` name, and an empty turn in `history` all land here |
 | `bad_level` | 400 | A conclusion level outside the four values |
 | `llm_not_configured` | 503 | Tier 2 or derivation asked for with no model provider |
 | `fixture_miss` | 503 | Replay mode, and the call is not in the recorded fixtures |
 | `missing_config` | 503 | Required configuration is absent. For `AIMON_MEMORY_JWT_SECRET` it fails at startup instead |
 | `weak_jwt_secret` | — | The signing key is under 32 bytes. Fails at startup, not over HTTP |
+| `unknown_llm_provider` | — | `AIMON_MEMORY_LLM_PROVIDER` (or `_LLM_FALLBACK`) is not `openai`, `anthropic` or `none`. Fails at startup |
+| `unknown_embed_provider` | — | `AIMON_MEMORY_EMBED_PROVIDER` is not `openai` or `hashing`. Fails at startup |
+| `default_db_password` | — | The shipped default password is in use against a database that is not on this host. Fails at startup |
+
+**The last four have no HTTP status.** They are not answers to a request — the process does not come
+up — so you read them in the startup log rather than from `curl`. All four are places where a quiet
+fallback was refused. The provider names especially: a typo used to be treated as `none`, so
+`AIMON_MEMORY_LLM_PROVIDER=openal` started cleanly and then answered every model call with
+`llm_not_configured`. **`none` is a decision; a typo is not.**
 
 A 422 message **names the values it would accept**: an unknown configuration key lists all fourteen
 keys, an unknown filter field lists every field in that schema. Read the error body before reopening

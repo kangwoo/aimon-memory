@@ -4,6 +4,14 @@ spring:
   datasource:
     url: ${AIMON_MEMORY_DB_URL:jdbc:postgresql://localhost:5432/aimon_memory}
     username: ${AIMON_MEMORY_DB_USER:aimon_memory}
+    # This default is the compose stack's password, and it is a credential published in this
+    # repository — the same objection the jwt.secret comment below refuses a default over. It is kept
+    # only because the local flow the README documents is `docker compose up` then `java -jar`, and
+    # the matching value lives in a compose file that no application property can reach.
+    #
+    # DatabaseCredentialCheck is what makes keeping it defensible: it refuses to start when this
+    # value is still in use against a database that is not on this host, which is the deployment the
+    # objection is actually about.
     password: ${AIMON_MEMORY_DB_PASSWORD:aimon_memory}
     hikari:
       maximum-pool-size: ${AIMON_MEMORY_DB_POOL:20}

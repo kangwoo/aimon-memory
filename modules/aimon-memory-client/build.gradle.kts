@@ -30,30 +30,34 @@ dependencies {
 //
 // aimon-core's five-tier `PeerMemory` contract suite, in a source set of its own rather than in `src/test`.
 //
-// The suite arrives as `at.aimon.core:aimon-memory-testkit`. That artifact is on no remote repository — it first
-// ships in aimon-core 0.3.0, and the only copy anywhere is whatever `publishToMavenLocal` left in a ~/.m2. A test
-// that subclasses it cannot be skipped at runtime the way a missing Docker daemon is: an unresolvable superclass
-// fails `compileTestJava`, which took this module, and with it `checkAll`, down on every machine that had never
-// published aimon-core locally. That is every fresh clone and every CI runner — the state this repository was in
-// before this block existed, and it is not a state an open repository can be published in.
+// The suite arrives as `at.aimon.core:aimon-memory-testkit`, and it now resolves everywhere. Central's snapshot
+// repository serves `0.3.0-SNAPSHOT` (`maven-metadata.xml`, HTTP 200), which `settings.gradle.kts` and the root
+// `build.gradle.kts` point at for that one coordinate. **CI runs this tier.** That is a change from what this
+// block used to say, and the sentences it replaces claimed the opposite — "on no remote repository", "a runner
+// never has the testkit" — so they were the load-bearing kind of stale.
 //
-// So the coordinate is confined here, the classpath is resolved leniently, and the tier's tasks skip themselves
-// when the testkit is not among the artifacts that came back. On a machine that has it nothing changes:
-// `contractTest` compiles and runs the twenty-one cases, and the root `checkAll` names the task. On a machine
-// that does not, the tier says so by name and the rest of the build is untouched.
+// The split survives the change because the reason for it did. A test that subclasses the suite cannot be skipped
+// at runtime the way a missing Docker daemon is: an unresolvable superclass fails `compileTestJava`, and while
+// this lived in `src/test` that took the module, and with it `checkAll`, down on every machine that had not run
+// `publishToMavenLocal` from an aimon-core checkout. A snapshot repository removes the usual way in, not the
+// failure mode — an offline build, a repository outage, or a snapshot rotated out from under this pin all land
+// in the same place. The coordinate stays confined here, the classpath stays lenient, and the tier's tasks skip
+// themselves when the testkit is not among the artifacts that came back.
 //
-// Skipping quietly is the risk that buys, and two guards below hold it down, because this is the one gate CI
-// cannot check — a runner never has the testkit, so it always skips and would never report the tier going dark.
-// `verifyContractTestClasspath` narrows the leniency to the testkit, so nothing else that fails to resolve is
-// swallowed with it; `verifyContractTestRan` fails when the tier was allowed to run and produced no cases. Both
-// were written against demonstrated failures rather than imagined ones — see their own comments.
+// The two guards below are what keep a skip from being indistinguishable from a pass, and their standing is now
+// better rather than worse: a green CI run means the twenty-one cases actually ran, so a tier that goes dark is
+// visible rather than routine. `verifyContractTestClasspath` narrows the leniency to the testkit, so nothing else
+// that fails to resolve is swallowed with it; `verifyContractTestRan` fails when the tier was allowed to run and
+// produced no cases. Both were written against demonstrated failures rather than imagined ones — see their own
+// comments.
 //
 // The dependency is reached by GAV and never as `project(":aimon-memory-testkit")`. This build has an internal
 // module of that exact name — fixtures for the five service tiers, unrelated — and the project notation would
 // resolve to it without failing, which is the quiet version of a green build measuring the wrong thing.
 //
-// Fold this back into `src/test` when 0.3.0 is on Central: the reason for the split is the artifact's
-// availability, and nothing else.
+// Fold this back into `src/test` when 0.3.0 is *released* to Central: the reason for the split is that a
+// `compileTestJava` on the main test source set must not be able to fail over an artifact that is still a
+// snapshot. Reaching it from a remote repository was never the bar — resolving it reliably is.
 
 val testkitCoordinate = "at.aimon.core:aimon-memory-testkit"
 val testkitVersion = libs.findVersion("aimonTestkit").orElseThrow().requiredVersion
@@ -161,8 +165,11 @@ tasks.named<JavaCompile>("compileContractTestJava") {
         if (!resolved) {
             logger.lifecycle(
                 "aimon-memory-client: skipping the PeerMemory contract tier. $testkitCoordinate did not " +
-                    "resolve, and it is on no remote repository until aimon-core 0.3.0 ships. To run it, " +
-                    "publish that from an aimon-core checkout with " +
+                    "resolve. It normally does — Central's snapshot repository serves it, and CI runs this " +
+                    "tier — so treat this as a broken build environment rather than the expected state: an " +
+                    "offline build, an unreachable centralSnapshots (see settings.gradle.kts), or a snapshot " +
+                    "rotated out from under the `aimonTestkit` pin. To run it from a local publish instead, " +
+                    "use an aimon-core checkout and " +
                     "`./gradlew publishToMavenLocal -PVERSION_NAME=$testkitVersion`.",
             )
         }

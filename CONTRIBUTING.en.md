@@ -15,7 +15,9 @@ list of manners to observe.
   starts its own. The fast gate (`checkAll`) needs neither.
 
 Every dependency comes from Maven Central, `at.aimon.core:aimon-core:0.2.4` included, so a fresh
-clone builds. There is exactly one exception and it is described under "The contract tier" below.
+clone builds. Exactly one coordinate comes from Central's snapshot repository rather than a release,
+and that is remote too, so there is nothing to set up. It is described under "The contract tier"
+below.
 
 ```sh
 git clone https://github.com/kangwoo/aimon-memory
@@ -30,9 +32,9 @@ docker compose up -d
 
 | Command | What it proves | Docker | When |
 |---|---|:-:|---|
-| `./gradlew checkAll` | Formatting, style, the BOM, and the 165 tests that need no database | no | on every save |
-| `./gradlew integrationTest` | The 241 Testcontainers tests | yes | before opening a PR |
-| `./gradlew :aimon-memory-client:contractTest` | aimon-core's 21 `PeerMemory` contract cases | no | see below |
+| `./gradlew checkAll` | Formatting, style, the BOM, the 254 tests that need no database, and the 21 contract cases | no | on every save |
+| `./gradlew integrationTest` | The 256 Testcontainers tests | yes | before opening a PR |
+| `./gradlew :aimon-memory-client:contractTest` | aimon-core's 21 `PeerMemory` contract cases | no | `checkAll` already calls it; see below |
 | `./gradlew :aimon-memory-worker:loadTest` | Concurrent readers and writers under contention | yes | when you touch the worker or the queue |
 
 `checkAll` and `integrationTest` are CI's two jobs and both are gates. They are separated for one
@@ -49,24 +51,26 @@ converge under contention.
 ### The contract tier
 
 `aimon-memory-client` runs aimon-core's five-tier `PeerMemory` contract suite by subclassing it. The
-suite arrives as `at.aimon.core:aimon-memory-testkit`, and **that artifact is on no remote
-repository yet.** It first ships in aimon-core 0.3.0; until then the only copy anywhere is one
-somebody published into their own `~/.m2`.
+suite arrives as `at.aimon.core:aimon-memory-testkit`, and **that artifact has no release yet** — it
+first ships in aimon-core 0.3.0. It is published to Central's snapshot repository instead, and the
+build opens that repository for that one coordinate. So the tier **runs on any machine**: a fresh
+clone and a CI runner alike.
 
-So the tier lives in a source set of its own, `src/contractTest` rather than `src/test`, and it
-**skips itself** when the testkit does not resolve. On a machine without it, the build prints one
-line saying why and carries on.
+The tier lives in a source set of its own, `src/contractTest` rather than `src/test`, which keeps an
+unreleased coordinate off `aimon-memory-client`'s compile classpath. If the testkit fails to resolve
+for any reason, the tier **skips itself** with one line saying why rather than failing the build.
 
-To run it, publish the testkit once from an aimon-core checkout:
+`checkAll` names these 21 cases, so there is nothing extra to run. To run just this tier:
 
 ```sh
-# from an aimon-core checkout
-./gradlew publishToMavenLocal -PVERSION_NAME=0.3.0-SNAPSHOT
+./gradlew :aimon-memory-client:contractTest
 ```
 
-CI has no such copy, so CI does not run these 21 cases. **A green CI is not evidence that the
-contract suite passed.** If you change the adapter (`RemotePeerMemory`) or the meaning of an endpoint
-it calls, run the tier by hand and say so in the PR.
+**A green CI now is evidence that the contract suite passed.** It used to not be: the testkit lived
+only in someone's `~/.m2`, so CI always skipped the tier and a PR touching the adapter had to report
+a hand-run result. Publishing the snapshot to Central ended that exception. The skip itself has not
+gone away, though — if you see the skip line in a log, that run did not check the contract, so do
+not read its green as covering it.
 
 ---
 
@@ -135,9 +139,14 @@ implementation departs from it, and why, with the evidence.** Write one when:
 - it is a licensing or copyright boundary (ADR 0005);
 - it is a contract with another repository, especially one no build can show (ADR 0007).
 
-Follow the existing shape: `docs/adr/NNNN-slug.md`, a language banner on the first line,
-`# ADR NNNN — Title`, `**Status:** accepted · YYYY-MM-DD`, then Context / Decision / Consequence.
-Numbers run on.
+Follow the existing shape. The Korean canonical file is `docs/adr/NNNN-slug.md`: a language banner on
+the first line, `# ADR NNNN — 제목`, `**상태:** accepted · YYYY-MM-DD`, then 맥락 / 결정 / 결과. Its
+English pair `NNNN-slug.en.md` uses `**Status:**` and Context / Decision / Consequence in the same
+places. Numbers run on.
+
+When a decision is overturned, or a fact inside one stops being true, do not rewrite the body — **add
+an addendum**: `## Addendum · YYYY-MM-DD — one line`. The value of the record is that it preserves
+the judgement as it stood. ADR 0007 has three.
 
 Conversely, anything a reader can learn by reading the code is a comment, not an ADR. Comments here
 record **why not the other way**, rather than what the line does. Please keep to that.
@@ -166,7 +175,8 @@ came from, not something asked of contributors.
 
 - [ ] `./gradlew checkAll` passes
 - [ ] `./gradlew integrationTest` passes (needs Docker)
-- [ ] if you touched `RemotePeerMemory` or its endpoints, you ran `contractTest` by hand and said so
+- [ ] if you touched `RemotePeerMemory` or its endpoints, you checked the `checkAll` log and saw
+      `contractTest` actually run rather than skip
 - [ ] a new endpoint has an entry in `RoutePolicy` (without one the build fails)
 - [ ] a changed golden fixture or ranking baseline is explained in the PR
 - [ ] a decision that departs from the specification has an ADR

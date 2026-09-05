@@ -70,6 +70,14 @@ public class WorkspaceSettingsService implements AnalyzerResolver {
         if (cache.size() > MAX_CACHED_WORKSPACES) {
             cache.clear();
         }
+        // computeIfAbsent, and `load` therefore runs a JDBC query while holding a bin lock on the
+        // map. That is the right trade as written — concurrent misses on one workspace collapse to a
+        // single query instead of a stampede, and the query is one indexed read — but it puts a
+        // standing condition on `load`: it must never reach back into this cache, directly or through
+        // anything it calls. A recursive computeIfAbsent on the same map does not degrade, it
+        // deadlocks the calling thread outright, and the caller here is an HTTP request thread on
+        // every recall. Anything `load` needs that is not the workspaces table belongs above this
+        // line, resolved before the lookup.
         return cache.computeIfAbsent(workspaceName, this::load);
     }
 

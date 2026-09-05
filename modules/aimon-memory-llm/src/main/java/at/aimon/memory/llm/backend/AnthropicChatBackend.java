@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import at.aimon.memory.core.spi.llm.LlmUsage;
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.llm.Json;
+import at.aimon.memory.llm.LlmException;
 
 /**
  * Anthropic messages.
@@ -127,8 +128,33 @@ public final class AnthropicChatBackend implements ChatBackend {
                         HttpSupport.request(baseUrl + "/v1/messages", headers(), timeout, body.toString()).build(),
                         "anthropic")
                 .filter(line -> line.startsWith("data: ")).map(line -> Json.read(line.substring(6)))
+                .map(AnthropicChatBackend::failOnErrorEvent)
                 .filter(node -> "content_block_delta".equals(node.path("type").asText()))
                 .map(node -> node.path("delta").path("text").asText("")).filter(text -> !text.isEmpty());
+    }
+
+    /**
+     * Raise an error the provider reported mid-stream instead of filtering it away.
+     *
+     * <p>A stream can fail after its headers have been accepted — an overload downstream of the
+     * gateway is the usual way — and it says so with an {@code error} event in the body. The
+     * {@code content_block_delta} filter below drops every event that is not a delta, which meant
+     * that one arrived, was discarded, and the stream then ended normally: the caller received a
+     * truncated answer followed by {@code event: done}, and nothing anywhere recorded that the
+     * provider had given up. A short answer is indistinguishable from a complete one.
+     *
+     * <p>Its own code rather than {@code llm_retryable}. By the time this runs the stream has already
+     * been handed back through the fallback chain and is being consumed lazily, so there is no
+     * attempt left for a retryable code to trigger — saying so plainly is more useful than a label
+     * that promises a retry nothing will perform.
+     */
+    private static JsonNode failOnErrorEvent(JsonNode event) {
+        if (!"error".equals(event.path("type").asText())) {
+            return event;
+        }
+        JsonNode error = event.path("error");
+        throw new LlmException("llm_stream_error", "anthropic ended the stream with "
+                + error.path("type").asText("an error") + ": " + error.path("message").asText(""));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

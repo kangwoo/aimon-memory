@@ -8,6 +8,19 @@ copyright: Copyright &copy; 2026 AIMON contributors &middot; Apache License 2.0
 
 docs_dir: docs
 
+# `--strict` promotes WARNING to an error, and MkDocs 1.6 logs a broken *anchor* at INFO by
+# default -- so a renamed heading passed the docs workflow silently while that workflow's own
+# comment claimed it would fail the build. These three lines are what make the claim true.
+#
+# `anchors` is the one that matters here: every cross-reference between architecture.md,
+# concepts.md and the guide is an anchor written by hand, and MkDocs is the only thing that
+# checks them on either surface. Turned on against a clean tree -- it reported nothing at the
+# time it was added, so it starts as a gate rather than as a backlog.
+validation:
+  links:
+    anchors: warn
+    unrecognized_links: warn
+
 # No `nav:`. Navigation is generated from the directory tree, so the curated index
 # lives in exactly one place -- docs/README.md -- instead of being maintained twice
 # and drifting. Which document owns what is ADR 0008's table, and docs/README.md is
@@ -21,9 +34,9 @@ docs_dir: docs
 #
 # They are excluded, not deleted: both stay readable on GitHub, and
 # scripts/mkdocs_github_links.py reads THIS list to rewrite links pointing into them
-# into GitHub URLs at render time. So the ~100 references from architecture, concepts
-# and the guide keep working on both surfaces, and adding a directory here is the
-# whole change -- the hook follows.
+# into GitHub URLs at render time. That is 80 links across the five built documents --
+# architecture 46, README 12, concepts 12, the guide 6, the runbook 4 -- and they keep
+# working on both surfaces. Adding a directory here is the whole change; the hook follows.
 #
 # The leading slash is load-bearing: a bare `adr/` is a gitignore pattern that matches
 # at any depth, which would also swallow a nested `adr/` if one ever appeared.

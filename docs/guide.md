@@ -223,7 +223,8 @@ curl -s localhost:8080/v1/workspaces/demo/sessions/s1/peers "${auth[@]}"       #
 curl -s -X DELETE localhost:8080/v1/workspaces/demo/sessions/s1/peers/alice "${auth[@]}"
 ```
 
-`PUT` 은 명단을 통째로 갈아 끼우고, `POST` 는 더한다.
+`PUT` 은 명단을 통째로 갈아 끼우고, `POST` 는 더한다. `peer` 는 **비어 있을 수 없다** — 공백뿐인
+이름은 400 이다.
 
 멤버십에는 창이 있다. 나갔다가 다시 들어온 peer 는 처음에 들은 것을 유지하면서 그 사이의 공백은
 얻지 않는다. 메시지 시점에 없었던 사람의 기억에는 그 메시지가 들어가지 않는다.
@@ -245,6 +246,9 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/sessions/s1/messages "${auth[@
 ```
 
 - 요청당 **최대 100건**.
+- `content` 는 **비어 있을 수 없고 32000자를 넘을 수 없다.** 둘 다 400 이다. 상한은 4자/토큰 근사로
+  8191 토큰인데, 임베더가 입력을 자르는 지점이 거기다 — 더 긴 텍스트를 받아 주면 시맨틱 recall 이
+  영영 볼 수 없는 꼬리를 저장하게 된다.
 - `metadata` 는 자유 형식 JSON. 시스템이 해석하지 않고 그대로 보관한다.
 - **즉시 반환한다.** 모델 호출은 워커가 나중에 한다.
 
@@ -363,7 +367,7 @@ curl -s -G localhost:8080/v1/workspaces/demo/sessions/s1/context "${auth[@]}" \
 
 | 파라미터 | 기본값 | 무엇인가 |
 |---|--:|---|
-| `tokens` | 4000 | 전체 예산. 요약 40% · 원문 60% 로 나뉜다 |
+| `tokens` | 4000 | 전체 예산. 요약 40% · 원문 60% 로 나뉜다. 상한 128000 |
 | `target` | session 이름 | 렌더링할 때 누구 시점인지 |
 | `perspective` | — | 렌더링 관점 |
 
@@ -455,7 +459,9 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/chat "${auth[@]}" \
 `toolCalls` 에 들어 있다. `stoppedAtLimit` 이 `true` 면 모델이 답을 다 만들지 못하고 상한에서
 멈춘 것이다 — 레벨을 올리거나 질문을 좁힐 자리다.
 
-`history` 는 최대 500턴까지 받는다. 구조화된 출력이 필요하면 `responseFormat` 에 JSON 스키마를 준다.
+`history` 는 최대 500턴까지 받는다. 각 turn 의 `role` 과 `content` 는 **비어 있을 수 없다** — 빈 turn 은
+400 이고, `/chat` 과 `/chat/stream` 둘 다 그렇다. 구조화된 출력이 필요하면 `responseFormat` 에 JSON
+스키마를 준다.
 
 스트리밍은 `POST .../chat/stream` 이고 SSE 로 나간다. 타임아웃 5분.
 
@@ -790,11 +796,20 @@ IDENTITY:      ATTRIBUTE:      RELATIONSHIP:      INSTRUCTION:
 | `bad_lifetime` | 400 | 30일 초과, 또는 0 이하 |
 | `bad_reasoning_level` | 400 | `minimal` `low` `medium` `high` `max` 중 하나가 아니다 |
 | `batch_too_large` | 400 | 한 요청에 메시지 100건 초과 |
+| `bad_request` | 400 | 본문이 JSON 이 아니거나 필드 제약을 어겼다. 빈 메시지 `content`(32000자 초과 포함), 빈 `peer` 이름, `history` 의 빈 turn 이 전부 여기다 |
 | `bad_level` | 400 | 결론 등급이 네 값 중 하나가 아니다 |
 | `llm_not_configured` | 503 | 모델 제공자 없이 Tier 2 나 도출을 요구했다 |
 | `fixture_miss` | 503 | replay 모드인데 기록된 픽스처에 없는 호출이다 |
 | `missing_config` | 503 | 필수 설정이 없다. `AIMON_MEMORY_JWT_SECRET` 이라면 애초에 기동에서 실패한다 |
 | `weak_jwt_secret` | — | 서명 키가 32바이트 미만. HTTP 가 아니라 기동에서 실패한다 |
+| `unknown_llm_provider` | — | `AIMON_MEMORY_LLM_PROVIDER`(또는 `_LLM_FALLBACK`)가 `openai` · `anthropic` · `none` 이 아니다. 기동에서 실패한다 |
+| `unknown_embed_provider` | — | `AIMON_MEMORY_EMBED_PROVIDER` 가 `openai` · `hashing` 이 아니다. 기동에서 실패한다 |
+| `default_db_password` | — | 저장소 기본 비밀번호를 이 기계가 아닌 데이터베이스에 쓰고 있다. 기동에서 실패한다 |
+
+**아래 넷은 HTTP 상태가 없다.** 요청에 대한 응답이 아니라 프로세스가 뜨지 않는 것이라서, `curl` 이 아니라
+기동 로그에서 본다. 넷 다 조용한 폴백을 거부하기로 한 자리다 — 특히 provider 이름은 예전에 오타를
+`none` 으로 취급해서, `AIMON_MEMORY_LLM_PROVIDER=openal` 인 배포가 멀쩡히 뜬 다음 모든 모델 호출에
+`llm_not_configured` 로 답했다. **`none` 은 결정이고 오타는 결정이 아니다.**
 
 422 메시지는 **허용되는 값을 함께 알려 준다.** 모르는 설정 키를 쓰면 열네 개 키 전부를, 없는 필터
 필드를 쓰면 그 스키마의 필드 전부를 나열해 준다. 문서를 다시 열기 전에 오류 본문부터 읽을 것.

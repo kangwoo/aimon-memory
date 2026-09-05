@@ -220,3 +220,37 @@ out"*. 계약은 그 입장을 숙고해서 기각한 것이다. 더 넓은 답�
 `mavenLocal()` 은 그 좌표 하나 때문에 `settings.gradle.kts` 와 `build.gradle.kts` 에 남는다. 0.3.0 이
 Central 에 닿으면 두 줄과 두 번째 버전은 여전히 빠진다. 달라진 것은 그때까지 `git clone` 에서
 `checkAll` 로 가는 길이 그것들을 거치지 않는다는 점이다.
+
+---
+
+## 덧붙임 · 2026-09-05 — `mavenLocal()` 을 Central 스냅샷으로 바꿨고, 계약 계층이 어디서나 돈다
+
+바로 위 덧붙임의 마지막 문단이 더는 참이 아니다. 그대로 두면 이 문서가 빌드와 반대되는 말을 한다.
+
+`mavenLocal()` 은 새 클론을 살렸지만 절반만 살렸다. `checkAll` 은 어디서나 통과하게 됐는데, 그 대가로
+계약 계층이 **testkit 을 손수 publish 한 기계 한 대에서만** 돌았다. CI 러너는 `~/.m2` 가 비어 있으니
+언제나 건너뛰었고, 그래서 초록 체크는 이 저장소가 aimon-core 의 계약을 지키는지에 대해 아무 말도 하지
+않았다. 스위트를 도입한 이유 자체가 "같은 계약을 주장하는 백엔드 둘 중 하나만 스위트를 돌리는 상태"를
+끝내려는 것이었으니, 그 상태를 CI 안에서 재현한 셈이다.
+
+해법은 릴리스가 아니라 **읽을 수 있는 저장소**였다. `at.aimon.core:aimon-memory-testkit:0.3.0-SNAPSHOT`
+을 Central 의 스냅샷 저장소에 발행했다. 릴리스는 여전히 0.3.0 이 처음이지만, 스냅샷은 모든 기계가 읽을
+수 있고 그것이 이 계층에 필요한 전부였다.
+
+| 그때 | 지금 |
+|---|---|
+| `mavenLocal()` | `centralSnapshots` — `https://central.sonatype.com/repository/maven-snapshots/` |
+| 좌표가 한 기계의 `~/.m2` 에만 | Central 스냅샷에 발행됨. 새 클론도 CI 러너도 푼다 |
+| CI 가 21개를 늘 건너뜀 | CI 가 21개를 돌린다. `checkAll` 이 이름으로 부른다 |
+| 초록 CI 가 계약에 대해 침묵 | 초록 CI 가 계약이 통과했다는 뜻이다 |
+
+저장소는 `includeModule("at.aimon.core", "aimon-memory-testkit")` 로 그 좌표 하나에 묶여 있고 Central
+뒤에 온다. 이 스냅샷 저장소에는 aimon-core 의 미릴리스 빌드가 전부 들어 있어서, 열어 두면 아무도 고르지
+않은 스냅샷이 딸려 들어올 수 있기 때문이다.
+
+**건너뛰기는 그대로 남는다.** 없앨 이유가 없어서가 아니라, 이제 건너뛴다는 것이 다른 뜻이기 때문이다.
+예전에는 "이 기계에 아티팩트가 없다"는 흔한 사실이었고 지금은 "좌표가 풀리지 않았다"는 사고 신호다.
+`verifyContractTestClasspath` 와 `verifyContractTestRan` 이 계속 필요한 이유도 같다.
+
+`aimonTestkit` 을 `aimonCore` 와 갈라 둔 것은 그대로다. 0.3.0 이 Central 에 닿으면 스냅샷 저장소 블록
+두 개와 두 번째 버전이 함께 빠지고, `contractTest` 소스셋은 `src/test` 로 접힌다.

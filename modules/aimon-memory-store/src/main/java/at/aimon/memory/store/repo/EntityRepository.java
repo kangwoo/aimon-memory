@@ -9,9 +9,11 @@ import org.springframework.stereotype.Repository;
 
 import at.aimon.memory.core.id.NanoId;
 import at.aimon.memory.core.key.PairKey;
+import at.aimon.memory.core.model.EntityLink;
 import at.aimon.memory.core.model.EntityMatch;
 import at.aimon.memory.core.model.EntityRef;
 import at.aimon.memory.core.spi.EntityStore;
+import at.aimon.memory.store.StoreException;
 import at.aimon.memory.store.Vectors;
 
 /**
@@ -36,6 +38,15 @@ public class EntityRepository implements EntityStore {
     private static final org.springframework.jdbc.core.RowMapper<EntityRef> ENTITY = (rs, i) -> new EntityRef(
             rs.getString("id"), rs.getString("workspace_name"), rs.getString("name_norm"), rs.getString("name_display"),
             rs.getString("kind"));
+
+    /**
+     * The SPI's view of {@link #normalize}, so a caller can ask this store what it considers the
+     * same name without depending on a static of this class.
+     */
+    @Override
+    public String normalizeName(String displayName) {
+        return normalize(displayName);
+    }
 
     /** Lowercase and collapse internal whitespace. Mirrors what {@code name_norm} is unique on. */
     public static String normalize(String name) {
@@ -157,7 +168,25 @@ public class EntityRepository implements EntityStore {
                 VALUES (?, ?, ?, ?, ?, ?::vector)
                 ON CONFLICT (workspace_name, name_norm) DO NOTHING
                 """).params(id, workspace, norm, displayName.strip(), kind, Vectors.toLiteral(embedding)).update();
-        return findByNorm(workspace, norm).orElseThrow();
+        // Named, not bare. DO NOTHING plus a read back is only empty if the row this just inserted, or
+        // the one that beat it to the name, was deleted in between — rare, and worth saying out loud
+        // when it happens. A bare orElseThrow raises NoSuchElementException with no message, which the
+        // API's catch-all reports as a 500 and the worker retries five times before quarantining a
+        // batch, having said nothing at any point about what was missing.
+        return findByNorm(workspace, norm).orElseThrow(() -> new StoreException("entity '" + norm + "' in workspace "
+                + workspace + " was neither inserted nor found; it was removed between the insert and the read"));
+    }
+
+    /**
+     * The SPI's read path: normalises here, so no caller has to know how.
+     *
+     * <p>{@code findByNorm} below stays public and off the interface — this module's tests assert on
+     * the {@code name_norm} column directly, which is a statement about this schema rather than a
+     * requirement on any other backend.
+     */
+    @Override
+    public Optional<EntityRef> findByName(String workspace, String displayName) {
+        return findByNorm(workspace, normalize(displayName));
     }
 
     public Optional<EntityRef> findByNorm(String workspace, String nameNorm) {
@@ -209,9 +238,6 @@ public class EntityRepository implements EntityStore {
                 .params(workspace, pair.observer(), pair.observed(), entityIds.toArray(String[]::new),
                         conclusionIds.toArray(String[]::new))
                 .query((rs, i) -> new EntityLink(rs.getString("entity_id"), rs.getString("conclusion_id"))).list();
-    }
-
-    public record EntityLink(String entityId, String conclusionId) {
     }
 
     public void unlinkConclusion(String workspace, String conclusionId) {

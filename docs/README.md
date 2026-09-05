@@ -20,6 +20,8 @@
 | **라우트 하나의 정확한 형태** | [`openapi.json`](openapi.json) — 33개 라우트, 스키마, 스코프 |
 | **왜 그렇게 정했는지** | [ADR](adr/README.md) — 명세에서 벗어난 자리와 그 근거 *(GitHub)* |
 | **원본 명세** | [명세와 계획](spec/README.md) — 2026-08-31 시점에 얼어 있다 *(GitHub)* |
+| **대시보드를 걸고 싶다** | [`dashboards/aimon-memory-overview.json`](dashboards/aimon-memory-overview.json) — Grafana 대시보드. 볼 메트릭은 [런북](runbook.md#관측)에 |
+| **픽스처가 무엇을 증명하나** | [픽스처](../test-fixtures/README.md) — 코퍼스 두 벌과 각각이 증명하는 것 *(GitHub)* |
 
 aimon-core 쪽에서 왔다면 [ADR 0007](adr/0007-aimon-core-boundary.md) 부터. 두 저장소 사이의 경계를
 긋는 문서다.

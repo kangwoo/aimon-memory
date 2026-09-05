@@ -40,6 +40,39 @@ final class MemoryHttp {
         return JSON.createObjectNode();
     }
 
+    /**
+     * Builds a request path out of segments, escaping each one.
+     *
+     * <p>
+     * Only the query string used to be escaped, and that asymmetry was the bug. Workspace, peer and session names are
+     * caller data — {@code Segments.required} checks that they are not blank and nothing else — and they were
+     * concatenated into the path verbatim. A name containing a space made {@code URI.create} throw
+     * {@code IllegalArgumentException}, which is not a {@link RemoteMemoryException} and so walked straight past the
+     * "unreachable versus absent" distinction {@link #send} exists to preserve, reaching an aimon-core caller as
+     * something its contract never mentions. A name containing {@code /}, {@code ..}, {@code ?} or {@code #} was
+     * worse: it addressed a different endpoint, quietly and successfully.
+     *
+     * <p>
+     * {@code URLEncoder} is form encoding, so it needs two corrections to be path encoding: {@code +} means a literal
+     * plus inside a path and has to be written {@code %20}, and a segment that is exactly {@code .} or {@code ..}
+     * comes through untouched and would still be resolved as a traversal.
+     */
+    static String path(String... segments) {
+        StringBuilder sb = new StringBuilder();
+        for (String segment : segments) {
+            sb.append('/').append(encodeSegment(segment));
+        }
+        return sb.toString();
+    }
+
+    private static String encodeSegment(String segment) {
+        String raw = segment == null ? "" : segment;
+        if (".".equals(raw) || "..".equals(raw)) {
+            return raw.replace(".", "%2E");
+        }
+        return URLEncoder.encode(raw, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     JsonNode get(String path, Map<String, String> query) {
         return send(HttpRequest.newBuilder(URI.create(base + path + queryString(query))).GET(), options.getTimeout());
     }

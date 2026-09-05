@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import at.aimon.memory.core.model.CorpusStats;
+
 /**
  * Okapi BM25, computed here rather than delegated to the database.
  *
@@ -22,24 +24,6 @@ public final class Bm25 {
 
     public static final double K1 = 1.2;
     public static final double B = 0.75;
-
-    /**
-     * Corpus statistics for one pair's conclusions.
-     *
-     * @param documentCount N
-     * @param averageLength average token count per document
-     * @param documentFrequency df per query term; a term absent from the map has df 0
-     */
-    public record CorpusStats(long documentCount, double averageLength, Map<String, Long> documentFrequency) {
-
-        public CorpusStats {
-            documentFrequency = Map.copyOf(documentFrequency);
-        }
-
-        public static CorpusStats empty() {
-            return new CorpusStats(0, 0, Map.of());
-        }
-    }
 
     private Bm25() {
     }

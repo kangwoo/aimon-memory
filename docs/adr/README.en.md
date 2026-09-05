@@ -17,8 +17,8 @@ Korean is the canonical text; each record has an English counterpart at the same
 | [0004](0004-half-life.en.md) | The recency signal uses a real half-life | accepted · 2026-08-31 | The spec's `exp(−Δ/H)` halves at 125 days, not 180. Corrected to `0.5^(Δ/H)` |
 | [0005](0005-agpl-boundary.en.md) | Clean-room boundary | accepted · 2026-08-31 | `aimon-memory-design.md` is the only specification; prompts, schemas and SQL are written from scratch |
 | [0006](0006-fanout-cost.en.md) | Extraction runs once per observing pair, not once per batch | accepted · 2026-08-31 | The spec's fan-out saving only holds if the pair's perspective is erased. The cost was chosen and recorded — N + N(N−1) per batch |
-| [0007](0007-aimon-core-boundary.en.md) | The boundary with aimon-core is `PeerMemory`, and nothing else | accepted · 2026-09-04 | One type is the seam; tenancy is ours, the agent is theirs. Two addenda record wiring the contract suite and the coordinate split that followed |
+| [0007](0007-aimon-core-boundary.en.md) | The boundary with aimon-core is `PeerMemory`, and nothing else | accepted · 2026-09-04 | One type is the seam; tenancy is ours, the agent is theirs. Three addenda record wiring the contract suite, the coordinate split that followed, and the contract tier coming to run everywhere |
 | [0008](0008-arc42-architecture-doc.en.md) | Architecture description collects into one arc42 document | accepted · 2026-09-05 | `architecture.md` is canonical but descriptive, not normative. The README hands over its architecture description, and every document owns something |
 
 If you arrived from aimon-core, read [0007](0007-aimon-core-boundary.en.md) first: it draws the
-boundary between the two repositories, and its two addenda carry what actually happened afterwards.
+boundary between the two repositories, and its three addenda carry what actually happened afterwards.

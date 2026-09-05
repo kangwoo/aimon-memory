@@ -76,9 +76,30 @@ public final class OpenAiChatBackend implements ChatBackend {
                         HttpSupport.request(baseUrl + "/chat/completions", headers(), timeout, body.toString()).build(),
                         "openai")
                 .filter(line -> line.startsWith("data: ")).map(line -> line.substring(6))
-                .takeWhile(payload -> !"[DONE]".equals(payload))
-                .map(payload -> Json.read(payload).path("choices").path(0).path("delta").path("content").asText(""))
+                .takeWhile(payload -> !"[DONE]".equals(payload)).map(payload -> failOnErrorChunk(Json.read(payload)))
+                .map(node -> node.path("choices").path(0).path("delta").path("content").asText(""))
                 .filter(text -> !text.isEmpty());
+    }
+
+    /**
+     * Raise an error the provider reported mid-stream instead of reading it as an empty delta.
+     *
+     * <p>The same gap as the Anthropic backend's, arriving in a different shape: a stream that fails
+     * after its headers were accepted sends a chunk carrying {@code error} instead of {@code choices}.
+     * Reaching for {@code choices[0].delta.content} on that chunk yields {@code ""}, which the filter
+     * below discards, so the stream ended normally having quietly dropped the reason it stopped —
+     * the caller got a truncated answer and a clean {@code done}.
+     *
+     * <p>{@code [DONE]} is handled before this, by {@code takeWhile}, because it is a sentinel rather
+     * than JSON and parsing it would fail on its own.
+     */
+    private static JsonNode failOnErrorChunk(JsonNode chunk) {
+        if (!chunk.hasNonNull("error")) {
+            return chunk;
+        }
+        JsonNode error = chunk.get("error");
+        throw new LlmException("llm_stream_error", "openai ended the stream with "
+                + error.path("type").asText("an error") + ": " + error.path("message").asText(""));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

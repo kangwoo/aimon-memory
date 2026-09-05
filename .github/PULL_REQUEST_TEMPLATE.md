@@ -22,7 +22,7 @@
 - [ ] `./gradlew checkAll`
 - [ ] `./gradlew integrationTest` (Docker 필요)
 - [ ] `./gradlew :aimon-memory-client:contractTest` — `RemotePeerMemory` 나 그 엔드포인트를 건드렸다면.
-      CI 는 이걸 돌리지 않습니다(testkit 이 Central 에 없음). 결과를 여기 적어 주세요
+      `checkAll` 이 이미 부르므로 CI 도 돌립니다. 로그에서 건너뛰지 않았는지만 확인해 주세요
 - [ ] `./gradlew :aimon-memory-worker:loadTest` — 워커나 큐를 건드렸다면
 - [ ] `./scripts/smoke.sh` — 부팅·마이그레이션·HTTP 경로를 건드렸다면
 

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import jakarta.validation.Valid;
 
@@ -97,8 +98,23 @@ public class ChatController {
         // timeout callback reads null, skips the interrupt, and lets a worker that is blocked inside
         // the provider call run to completion — the leak this block exists to close.
         Thread runner = Thread.ofVirtual().name("aimon-memory-sse").unstarted(() -> {
-            try {
-                dialectic.answerStreaming(question).takeWhile(chunk -> live.get()).forEach(chunk -> {
+            // try-with-resources, because the stream underneath is an open HTTP exchange with the
+            // provider. BodySubscribers.ofLines states the obligation outright: the caller must
+            // either read every line until the stream is exhausted, or close it, or the exchange's
+            // resources are never released.
+            //
+            // Both ways out of the loop below leave lines unread. `takeWhile` short-circuits the
+            // instant a disconnected client clears `live` — which is the whole reason it is there —
+            // and a failed send throws straight out of `forEach`. So the only path that returned the
+            // connection to the pool was the one where nothing went wrong, and every cancelled
+            // request leaked one: the failure mode this block was written to prevent, moved one
+            // layer down.
+            //
+            // One form covers both branches of answerStreaming. When the tool loop already produced
+            // an answer it hands back a Stream.of(text), which holds no resources and whose close is
+            // a no-op; only the iteration-limit fallback reaches a provider.
+            try (Stream<String> chunks = dialectic.answerStreaming(question)) {
+                chunks.takeWhile(chunk -> live.get()).forEach(chunk -> {
                     try {
                         emitter.send(SseEmitter.event().name("delta").data(chunk));
                     } catch (IOException e) {

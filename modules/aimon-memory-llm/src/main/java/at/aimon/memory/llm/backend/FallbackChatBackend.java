@@ -15,6 +15,16 @@ import at.aimon.memory.llm.LlmException;
  */
 public final class FallbackChatBackend implements ChatBackend {
 
+    /**
+     * Ceiling on a single backoff, matching the embedder's.
+     *
+     * <p>The doubling is not a bound on its own: {@code attemptsPerProvider} is configuration, and at
+     * ten attempts the eighth doubling is fifty-one seconds of sleep inside a worker thread that is
+     * holding a queue claim the whole time. {@code embed/Backoff} has capped this at twenty seconds
+     * since it was written, and there was never a reason for the two to disagree.
+     */
+    private static final long MAX_BACKOFF_MILLIS = 20_000;
+
     private final AttemptPlan plan;
     private final long baseBackoffMillis;
 
@@ -59,17 +69,25 @@ public final class FallbackChatBackend implements ChatBackend {
                 last = e;
             }
         }
+        // The last failure is attached as the cause, not only quoted into the message. Its own stack
+        // is where the provider, the status code and the transport error actually are; summarising it
+        // to a string threw all of that away at the one point where someone is asking why every
+        // provider refused.
         throw new LlmException("llm_exhausted",
-                "all " + plan.size() + " attempts failed; last: " + (last == null ? "unknown" : last.getMessage()));
+                "all " + plan.size() + " attempts failed; last: " + (last == null ? "unknown" : last.getMessage()),
+                last);
     }
 
     private void backoff(int attemptWithinBackend) {
-        long ceiling = baseBackoffMillis << Math.min(attemptWithinBackend, 8);
+        long doubled = baseBackoffMillis << Math.min(attemptWithinBackend, 8);
+        // max(base, …) so that a base above the cap still leaves nextLong a legal range rather than
+        // an inverted one.
+        long ceiling = Math.max(baseBackoffMillis, Math.min(MAX_BACKOFF_MILLIS, doubled));
         try {
             Thread.sleep(ThreadLocalRandom.current().nextLong(baseBackoffMillis, ceiling + 1));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new LlmException("llm_interrupted", "interrupted while backing off");
+            throw new LlmException("llm_interrupted", "interrupted while backing off", e);
         }
     }
 
