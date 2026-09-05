@@ -1,8 +1,10 @@
-# Operations
+**한국어** · [English](runbook.en.md)
 
-## Deploy
+# 운영
 
-Two processes from one artifact set:
+## 배포
+
+아티팩트 한 벌에서 프로세스 둘.
 
 ```sh
 ./gradlew :aimon-memory-api:bootJar :aimon-memory-worker:bootJar
@@ -10,187 +12,181 @@ java -jar modules/aimon-memory-api/build/libs/aimon-memory-api-*.jar
 java -jar modules/aimon-memory-worker/build/libs/aimon-memory-worker-*.jar
 ```
 
-They differ in how they should be treated:
+둘은 다루는 방법이 다르다.
 
 | | API | Worker |
 |---|---|---|
-| Restart freely | yes | yes, but claims linger until TTL |
-| Scale on | request rate | queue depth |
-| Bound by | database latency | provider latency |
-| Pool size | ~20 | ~2× concurrency |
+| 마음껏 재시작 | 예 | 예, 다만 클레임이 TTL 까지 남는다 |
+| 확장 기준 | 요청률 | 큐 깊이 |
+| 묶이는 대상 | 데이터베이스 지연 | 제공자 지연 |
+| 풀 크기 | ~20 | 동시성의 ~2배 |
 
-The worker pool is small on purpose. A work unit holds a connection only around its queries, never
-across the model call, so concurrency is bounded by `aimon.memory.worker.concurrency` rather than by the pool.
+워커 풀이 작은 것은 의도다. work unit 은 자기 질의 주변에서만 커넥션을 쥐고 모델 호출 동안에는 놓기
+때문에, 동시성은 풀이 아니라 `aimon.memory.worker.concurrency` 가 정한다.
 
-## Migrations
+## 마이그레이션
 
-Flyway runs at startup on both processes. Concurrent starts are safe — Flyway takes a lock — but the
-first deploy of a new migration should go out on one instance.
+Flyway 는 두 프로세스 모두에서 기동 시 돈다. 동시에 떠도 안전하지만 — Flyway 가 락을 잡는다 — 새
+마이그레이션의 첫 배포는 인스턴스 하나로 나가는 편이 좋다.
 
-Indexes arrive per phase (`V2`–`V11`) rather than all in `V1`, because an unused HNSW index still
-slows every insert. Before adding another, check that something queries it.
+인덱스는 `V1` 에 몰아넣지 않고 단계별로(`V2`–`V11`) 들어온다. 쓰지도 않는 HNSW 인덱스가 모든 insert 를
+느리게 만들기 때문이다. 하나 더 붙이기 전에 그것을 질의하는 것이 있는지 확인할 것.
 
-`V2` and `V3` build HNSW indexes. On a large table that is slow and takes a write lock; use
-`CREATE INDEX CONCURRENTLY` in a manual step for an existing deployment and mark the migration as
-applied.
+`V2` 와 `V3` 은 HNSW 인덱스를 만든다. 테이블이 크면 느리고 쓰기 락을 잡으므로, 이미 돌고 있는 배포에는
+수동 단계로 `CREATE INDEX CONCURRENTLY` 를 쓰고 마이그레이션은 적용된 것으로 표시한다.
 
-**An applied migration is immutable.** Flyway checksums a migration from its raw bytes, before
-placeholder substitution, and `validateOnMigrate` is on. Editing `V1` does not re-run it — it stops
-every existing deployment from booting with a checksum mismatch, while fresh databases and the
-Testcontainers suite, which build the schema from nothing every time, stay green and say nothing.
-`V9` exists because the vector columns needed to follow `aimon.memory.embed.dimensions` and `V1` had already
-shipped at 1536.
+**적용된 마이그레이션은 불변이다.** Flyway 는 플레이스홀더 치환 전의 원시 바이트로 체크섬을 잡고,
+`validateOnMigrate` 는 켜져 있다. `V1` 을 고치면 다시 도는 것이 아니라, 기존 배포 전부가 체크섬 불일치로
+못 뜨게 된다. 그동안 매번 스키마를 처음부터 세우는 새 데이터베이스와 Testcontainers 스위트는 초록인 채
+아무 말도 하지 않는다. `V9` 가 있는 이유는 벡터 컬럼이 `aimon.memory.embed.dimensions` 를 따라가야 했는데
+`V1` 이 이미 1536 으로 나간 뒤였기 때문이다.
 
-`V9` alters the vector columns only while they hold no vectors, and otherwise fails naming both
-widths. Changing the width is a re-embedding, not a type change: pgvector cannot reinterpret a
-1536-wide value as 3072-wide. To go through with it, clear the column
-(`UPDATE conclusions SET embedding = NULL`) and let the reconciler's backfill rebuild it. Note that
-pgvector's HNSW indexes only cover vectors up to 2000 dimensions.
+`V9` 는 벡터 컬럼에 벡터가 들어 있지 않을 때만 변경하고, 아니면 두 폭을 모두 짚으며 실패한다. 폭을 바꾸는
+일은 타입 변경이 아니라 재임베딩이다. pgvector 는 1536 폭 값을 3072 폭으로 다시 해석하지 못한다. 굳이
+하려면 컬럼을 비우고(`UPDATE conclusions SET embedding = NULL`) 리컨실러의 백필이 다시 채우게 두면 된다.
+pgvector 의 HNSW 인덱스는 2000 차원까지만 덮는다는 것도 함께 기억할 것.
 
-`V11` adds `session_peer_windows`, the append-only record of when each session membership opened and
-closed. `session_peers` remains the current state and the observe flags; the windows are what the
-dialectic's message tools scope by, so a peer who leaves and rejoins keeps what they heard the first
-time without gaining the gap in between.
+`V11` 은 `session_peer_windows` 를 더한다. 각 세션 멤버십이 언제 열리고 닫혔는지를 추가만 하는 방식으로
+남기는 기록이다. 현재 상태와 observe 플래그는 `session_peers` 가 계속 들고 있고, dialectic 의 메시지
+도구가 범위를 잡을 때 보는 것은 이 창이다. 그래서 나갔다 다시 들어온 peer 는 처음에 들은 것을 그대로
+유지하면서 그 사이의 공백은 얻지 않는다.
 
-## Configuration that matters
+## 중요한 설정값
 
-| Setting | Default | When to change it |
+| 설정 | 기본값 | 언제 바꾸나 |
 |---|---|---|
-| `recall.half_life_days` | 180 | Coding agents forget in weeks, assistants in years |
-| `recall.weights` | `[.50 .22 .13 .08 .05 .02]` | After an evaluation set says so, never on a hunch |
-| `recall.threshold` | 0 | Raise when recall returns too much noise; it cuts the *fused* score |
-| `dedup.cosine_distance_max` | 0.05 | Technical corpora cluster tighter; loosen only with evidence |
-| `batch.idle_flush_seconds` | 3 | Lower for conversational UX, raise to batch harder under load |
-| `language` | `und` | `ko` or `en`; changing it needs a re-index (below) |
+| `recall.half_life_days` | 180 | 코딩 에이전트는 몇 주 만에 잊고, 비서는 몇 년에 걸쳐 잊는다 |
+| `recall.weights` | `[.50 .22 .13 .08 .05 .02]` | 평가 세트가 그러라고 할 때만. 감으로는 절대 안 된다 |
+| `recall.threshold` | 0 | recall 이 잡음을 너무 많이 물어 올 때 올린다. *융합* 점수를 자른다 |
+| `dedup.cosine_distance_max` | 0.05 | 기술 코퍼스는 더 촘촘히 뭉친다. 근거가 있을 때만 느슨하게 |
+| `batch.idle_flush_seconds` | 3 | 대화형 UX 면 낮추고, 부하가 높으면 더 묶도록 올린다 |
+| `language` | `und` | `ko` 또는 `en`. 바꾸면 재색인이 필요하다(아래) |
 
-Every value above is checked when it is written: an unknown key, a weight vector that does not sum to
-1.00, or a number outside the range it can be honoured in is a 422 rather than a 200 followed by a
-silent fallback to the defaults. The check sits on the repository rather than on a route, so it
-covers create as well as update and cannot be missed by the next endpoint that writes the column. A
-row written straight into the table is not checked, and the API falls back to defaults for it — with
-a warning naming the workspace, which is the only trace such a row leaves.
+위의 모든 값은 쓰일 때 검사한다. 모르는 키, 합이 1.00 이 아닌 가중치 벡터, 지킬 수 없는 범위의 숫자는
+200 뒤에 조용히 기본값으로 물러나는 대신 422 가 된다. 검사는 라우트가 아니라 리포지토리에 붙어 있어서
+update 뿐 아니라 create 도 덮고, 이 컬럼에 쓰는 다음 엔드포인트가 그것을 빠뜨릴 수 없다. 테이블에 곧장
+꽂아 넣은 행은 검사되지 않고 API 는 그 행에 기본값을 쓰는데, 이때 workspace 이름을 짚는 경고가 남고 그
+경고가 그런 행이 남기는 유일한 흔적이다.
 
-Tuning belongs to the workspace. Peers and sessions have a `configuration` column of their own, but
-nothing reads it back into settings, so a tuning key set there is rejected with a 422 rather than
-stored and quietly ignored. Keys the system does not recognise are still accepted there as opaque
-client data.
+튜닝은 workspace 의 몫이다. peer 와 session 에도 자기 `configuration` 컬럼이 있지만 그것을 설정으로 읽어
+들이는 것이 없어서, 거기 설정한 튜닝 키는 저장된 뒤 조용히 무시되는 대신 422 로 거부된다. 시스템이
+모르는 키는 불투명한 클라이언트 데이터로 그 자리에 계속 받아 준다.
 
-Workspace configuration is cached in the API process and evicted on write through the configuration
-endpoint. Changing it directly in the database needs a restart.
+workspace 설정은 API 프로세스에 캐시되고 설정 엔드포인트를 통한 쓰기에서 무효화된다. 데이터베이스에서
+직접 바꾸면 재시작이 필요하다.
 
-## Secrets
+## 비밀값
 
-`AIMON_MEMORY_JWT_SECRET` is required by the API and has no default; a missing or short value stops startup
-rather than falling back to something. It signs every token, so rotating it invalidates all of them
-at once — there is no revocation list, and token lifetimes are capped at 30 days for that reason.
+`AIMON_MEMORY_JWT_SECRET` 은 API 에 필수이고 기본값이 없다. 없거나 짧으면 다른 것으로 물러나지 않고 기동이
+멈춘다. 모든 토큰에 서명하는 값이라 이것을 교체하면 모든 토큰이 한꺼번에 무효가 된다 — 폐기 목록이 없고,
+토큰 수명을 30일로 묶어 둔 이유가 그것이다.
 
-`aimon.memory.jwt.lifetime` is checked against that cap at startup too, not only when a token is minted. Set
-above 30 days it would otherwise boot cleanly and then fail every `POST /v1/tokens` that omits an
-explicit lifetime — which is the normal case — with a 400 blaming the request.
+`aimon.memory.jwt.lifetime` 도 토큰을 발급할 때만이 아니라 기동 시에 그 상한과 대조한다. 30일 위로
+설정하면 그러지 않을 경우 멀쩡히 떴다가, 명시적 수명을 빼고 부르는 — 그게 정상적인 경우다 —
+`POST /v1/tokens` 마다 요청 탓을 하는 400 으로 실패하게 된다.
 
-`/v1/tokens` narrows an existing token rather than creating one from nothing: a workspace token can
-mint peer and session tokens inside its own workspace, and nothing can mint something wider than
-itself. The first admin token has to be signed out of band (`scripts/smoke.sh` shows how).
+`/v1/tokens` 는 없던 토큰을 만드는 것이 아니라 있는 토큰을 좁힌다. workspace 토큰은 자기 workspace 안에서
+peer 토큰과 session 토큰을 발급할 수 있고, 무엇도 자기보다 넓은 것을 만들지 못한다. 최초의 admin 토큰은
+대역 밖에서 서명해야 한다(`scripts/smoke.sh` 에 방법이 있다).
 
-## Common situations
+## 자주 마주치는 상황
 
-**Conclusions are not appearing.** Check `queue` for unprocessed rows and `work_unit_claims` for a
-stale claim. Claims expire after `aimon.memory.worker.claim-ttl`; the reconciler removes them on its next
-pass. A work unit stuck at `attempts >= aimon.memory.worker.max-attempts` has been quarantined, and
-`last_error` says why.
+**결론이 안 생긴다.** `queue` 에 처리되지 않은 행이 있는지, `work_unit_claims` 에 묵은 클레임이 있는지
+본다. 클레임은 `aimon.memory.worker.claim-ttl` 이 지나면 만료되고 리컨실러가 다음 패스에서 걷어 간다.
+`attempts >= aimon.memory.worker.max-attempts` 에 멈춘 work unit 은 격리된 것이고, 이유는 `last_error` 에
+있다.
 
 ```sql
 SELECT work_unit_key, count(*), min(created_at), max(attempts), max(last_error)
 FROM queue WHERE processed = FALSE GROUP BY work_unit_key ORDER BY min(created_at) LIMIT 20;
 ```
 
-**Recall returns nothing for a Korean query.** Check `analyzedQuery` in the response first — it is
-there for exactly this. An empty or wrong analysis means the workspace `language` is not `ko`. Nori
-splitting a proper noun is the other common cause; the fix is a user dictionary at
-`AIMON_MEMORY_NORI_USER_DICT`.
+**한국어 질의에 recall 이 아무것도 안 돌려준다.** 응답의 `analyzedQuery` 부터 본다 — 정확히 이 상황을
+위해 있다. 분석 결과가 비었거나 이상하면 workspace 의 `language` 가 `ko` 가 아니라는 뜻이다. Nori 가
+고유명사를 쪼개는 것이 다른 흔한 원인이고, 해법은 `AIMON_MEMORY_NORI_USER_DICT` 의 사용자 사전이다.
 
-**A conclusion exists but semantic search never returns it.** Its embedding did not land. The
-reconciler retries automatically; `conclusion_events` carries a `sync_error` detail explaining why.
+**결론은 있는데 시맨틱 검색이 그것을 절대 안 물어 온다.** 임베딩이 안 들어갔다. 리컨실러가 자동으로
+재시도하고, `conclusion_events` 에 이유를 설명하는 `sync_error` 상세가 실린다.
 
 ```sql
 SELECT id, sync_state, left(content, 60) FROM conclusions
 WHERE deleted_at IS NULL AND (sync_state <> 'synced' OR embedding IS NULL) LIMIT 20;
 ```
 
-**Ranking changed unexpectedly.** `explain` on every hit shows which signal moved. Compare against
-`test-fixtures/golden/` — if the fixtures still pass, the formula is intact and the data changed.
+**순위가 갑자기 달라졌다.** 히트마다 붙는 `explain` 이 어느 신호가 움직였는지 보여 준다.
+`test-fixtures/golden/` 과 견줘 본다 — 픽스처가 아직 통과하면 공식은 멀쩡하고 데이터가 달라진 것이다.
 
-## Re-indexing
+## 재색인
 
-**After a language change:** re-analyse `content_analyzed` for the workspace, then let the FTS index
-rebuild. There is no online path for this yet; it is a scripted pass over the workspace's conclusions.
+**언어를 바꾼 뒤.** 해당 workspace 의 `content_analyzed` 를 다시 분석하고 FTS 인덱스가 다시 서게 둔다.
+아직 온라인 경로는 없다. workspace 의 결론들을 스크립트로 훑는 작업이다.
 
-**After an extraction prompt change:** entity quality is downstream of the prompt, so entities
-extracted under the old one may need rebuilding. `conclusion_events.detail->>'prompt_version'`
-identifies them. Clearing `entities.embedding` for the workspace makes the reconciler rebuild the
-vectors on its next pass.
+**추출 프롬프트를 바꾼 뒤.** 엔티티 품질은 프롬프트의 하류이므로, 예전 프롬프트로 뽑힌 엔티티는 다시
+세워야 할 수 있다. `conclusion_events.detail->>'prompt_version'` 으로 그것들을 식별한다. 해당 workspace 의
+`entities.embedding` 을 비우면 리컨실러가 다음 패스에서 벡터를 다시 만든다.
 
-## Observability
+## 관측
 
-Prometheus at `/actuator/prometheus` on the **management port** (`AIMON_MEMORY_MANAGEMENT_PORT`, default
-9090), not the service port. The auth interceptor covers `/v1/**` only, so metrics served on the main
-connector would be readable by anything that can reach the service. Publish 8080; do not publish 9090.
+Prometheus 는 서비스 포트가 아니라 **관리 포트**(`AIMON_MEMORY_MANAGEMENT_PORT`)의
+`/actuator/prometheus` 에 있다. 인증 인터셉터는 `/v1/**` 만 덮으므로, 메인 커넥터에 얹힌 메트릭은 이
+서비스에 닿을 수 있는 무엇이든 읽을 수 있게 된다.
 
-| Metric | Watch for |
+두 프로세스가 같은 변수를 읽지만 **기본값이 다르다.** API 의 관리 포트는 9090 이고, 서비스 포트 8080
+옆에 선다. 워커는 API 를 제공하지 않아서 actuator 가 HTTP 표면 전부이고, 그 포트가 9091 이다 —
+메트릭을 떼어 놓을 두 번째 커넥터가 없다. 8080 은 공개하고, 9090 도 9091 도 공개하지 말 것.
+
+| 메트릭 | 무엇을 볼 것인가 |
 |---|---|
-| `aimon_memory_worker_unit_seconds` | p99 climbing means provider latency, not database |
-| `aimon_memory_worker_items_total{task}` | flat while `queue` grows means claims are stuck |
-| `aimon_memory_worker_quarantined_total` | any increase is a poison batch worth reading |
-| `hikaricp_connections_pending` | sustained non-zero means the pool is undersized |
+| `aimon_memory_worker_unit_seconds` | p99 가 올라가면 데이터베이스가 아니라 제공자 지연이다 |
+| `aimon_memory_worker_items_total{task}` | `queue` 는 자라는데 이것이 평평하면 클레임이 걸린 것이다 |
+| `aimon_memory_worker_quarantined_total` | 조금이라도 늘면 읽어 볼 값어치가 있는 독성 배치다 |
+| `hikaricp_connections_pending` | 0 이 아닌 상태가 지속되면 풀이 작다 |
 
-The one alert worth having from day one is oldest unprocessed queue row older than
-`batch.max_age` plus a margin. It catches a stalled worker, an exhausted provider quota and a claim
-leak, all of which are otherwise silent.
+첫날부터 걸어 둘 값어치가 있는 경보는 하나다. 처리되지 않은 큐 행 중 가장 오래된 것이 `batch.max_age` 에
+여유를 더한 값보다 오래됐을 때. 멈춘 워커, 소진된 제공자 할당량, 새는 클레임을 모두 잡아내고, 그것들은
+그러지 않으면 전부 조용하다.
 
-## Index behaviour, measured
+## 인덱스 동작, 측정치
 
-Numbers from 60k conclusions across 200 pairs on Postgres 16, and from one pair holding 50k.
+Postgres 16 에서 200개 쌍에 걸친 결론 6만 건, 그리고 한 쌍이 5만 건을 들고 있는 경우에서 나온 숫자다.
 
-| Index | Size at 60k | When the planner uses it |
+| 인덱스 | 6만 건일 때 크기 | 플래너가 언제 쓰나 |
 |---|--:|---|
-| `ix_concl_hnsw` | **433 MB** | Only once a single pair is large. At ~300 rows per pair it scans the pair instead — correctly, that is cheaper |
-| `ix_concl_fts` | 3.5 MB | Selective text queries. Carries the pair columns via `btree_gin`; without them it was never chosen at all |
-| `ix_concl_pair` | 416 kB | Nearly everything else |
-| `ix_message_trgm` | — | `ILIKE` only. `position()` cannot use it, which is why `grep_messages` is written the way it is |
+| `ix_concl_hnsw` | **433 MB** | 한 쌍이 커진 뒤에야. 쌍당 300행쯤에서는 쌍을 스캔한다 — 그게 더 싸니까, 올바르게 |
+| `ix_concl_fts` | 3.5 MB | 선택적인 텍스트 질의. `btree_gin` 으로 쌍 컬럼을 함께 들고 있는데, 그게 없을 때는 아예 선택된 적이 없었다 |
+| `ix_concl_pair` | 416 kB | 그 밖의 거의 전부 |
+| `ix_message_trgm` | — | `ILIKE` 전용. `position()` 은 이것을 못 쓰고, `grep_messages` 가 지금처럼 쓰인 이유가 그것이다 |
 
-Two consequences worth planning around.
+계획에 넣어 둘 결론 둘.
 
-**The vector index is the dominant storage cost** — roughly 7 KB per conclusion, an order of magnitude
-more than the row itself. Budget for it, and remember it only starts paying for itself when a pair
-grows past a few thousand conclusions.
+**벡터 인덱스가 저장 비용을 지배한다** — 결론당 대략 7 KB 로, 행 자체보다 한 자릿수 크다. 예산에 넣어
+두고, 한 쌍이 결론 수천 건을 넘긴 뒤에야 값을 하기 시작한다는 것도 기억할 것.
 
-**A pair-scoped store defeats global indexes.** The pair predicate is so selective that an index over
-the whole table has to scan every workspace's entries to reach one pair. Any new index on
-`conclusions` intended for a pair-scoped query needs the scope columns in it, and
-`IndexUsageTest` is where that gets checked.
+**쌍 스코프 저장소는 전역 인덱스를 무력화한다.** 쌍 조건이 워낙 선택적이라, 테이블 전체를 덮는 인덱스는
+쌍 하나에 닿으려고 모든 workspace 의 항목을 훑어야 한다. 쌍 스코프 질의를 겨냥해 `conclusions` 에 새
+인덱스를 붙일 때는 스코프 컬럼이 그 안에 들어가야 하고, 그것을 확인하는 자리가 `IndexUsageTest` 다.
 
-## Load profile
+## 부하 프로파일
 
-`./gradlew :aimon-memory-worker:loadTest` runs concurrent ingestion and recall and prints percentiles. Knobs:
+`./gradlew :aimon-memory-worker:loadTest` 는 수집과 recall 을 동시에 돌리고 백분위수를 찍는다. 손잡이는
 `-Daimon.memory.load.pairs`, `-Daimon.memory.load.perPair`, `-Daimon.memory.load.readers`, `-Daimon.memory.load.writers`.
 
-On a developer laptop against a container, 20 pairs of 100 conclusions with 32 concurrent readers:
+개발자 노트북에서 컨테이너를 상대로, 결론 100건짜리 쌍 20개에 동시 리더 32개일 때.
 
 ```
 recall   n=640   p50  53.4 ms   p95 137.1 ms   p99 201.9 ms
 ingest   n=80    p50  57.9 ms   p95 516.7 ms   p99 531.7 ms
 ```
 
-Ingest p95 is high **because the test deliberately points every writer at one session**. Sequence
-allocation takes that session's row lock, so concurrent writers to a single conversation serialise —
-which is the intended behaviour and the reason the sequence is gap-free. Writers spread across
-sessions do not contend.
+ingest p95 가 높은 것은 **테스트가 일부러 모든 라이터를 한 세션에 겨누기 때문이다**. 시퀀스 할당이 그
+세션의 행 락을 잡으므로 대화 하나에 동시에 쓰는 라이터들은 직렬화된다 — 의도한 동작이고, 시퀀스에 빈틈이
+없는 이유다. 세션을 나눠 쓰는 라이터들은 경합하지 않는다.
 
-If recall p95 climbs in production, the order to check things: pool `pending` first, then whether one
-pair has grown large enough that the planner switched to the HNSW index, then `ef_search`.
+운영에서 recall p95 가 올라가면 확인할 순서는 이렇다. 풀의 `pending` 을 먼저, 그다음 한 쌍이 플래너가
+HNSW 인덱스로 갈아탈 만큼 커졌는지, 그다음 `ef_search`.
 
-## Backups
+## 백업
 
-Everything is in Postgres, so an ordinary base backup plus WAL is the whole story. `conclusion_events`
-is append-only and is what makes a partial restore auditable — it deliberately has no foreign key to
-`conclusions`, so the record of a deletion survives the row it describes.
+전부 Postgres 에 있으므로 평범한 베이스 백업에 WAL 이면 이야기가 끝난다. `conclusion_events` 는 추가만
+되고, 부분 복구를 감사 가능하게 만드는 것이 그것이다 — `conclusions` 로 향하는 외래키를 일부러 두지
+않았기 때문에, 삭제의 기록이 그 삭제가 지운 행보다 오래 남는다.

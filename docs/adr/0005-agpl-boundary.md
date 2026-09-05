@@ -1,32 +1,31 @@
-# ADR 0005 — Clean-room boundary
+**한국어** · [English](0005-agpl-boundary.en.md)
 
-**Status:** accepted · 2026-08-31
+# ADR 0005 — 클린룸 경계
 
-## Context
+**상태:** accepted · 2026-08-31
 
-One of the two systems this design draws on is AGPL-3.0. Architecture and concepts are not
-copyrightable; code and prompt strings are, and copying either would make this project AGPL.
+## 맥락
 
-## Decision
+이 설계가 참조하는 두 시스템 중 하나는 AGPL-3.0 이다. 아키텍처와 개념은 저작권의 대상이 아니지만
+코드와 프롬프트 문자열은 대상이고, 둘 중 하나라도 옮겨 오면 이 프로젝트가 AGPL 이 된다.
 
-`aimon-memory-design.md` is the only specification. No source from either original was consulted while
-building this, and neither repository is present in this working tree.
+## 결정
 
-Everything expressive is written from scratch:
+명세는 `aimon-memory-design.md` 하나뿐이다. 만드는 동안 어느 원본의 소스도 참고하지 않았고, 두 저장소
+모두 이 워킹 트리에 없다.
 
-- **Prompts.** `at.aimon.memory.engine.prompt.Prompts` — extraction, summarisation, dialectic, the three
-  dream specialists, the peer card. Written against the behaviours the specification describes, from
-  the failure modes each one has to avoid.
-- **Schemas.** The structured-output schemas are hand-written, with descriptions aimed at a model
-  rather than at a code generator.
-- **SQL.** Written from the schema in the specification, with the additions the design calls for
-  (`work_unit_claims`, `dreams`, `peer_cards`, the staged index migrations).
+표현에 해당하는 것은 전부 처음부터 썼다.
 
-The scoring formulae come from the Apache-2.0 system, which permits it, and are cited as such in the
-classes that implement them.
+- **프롬프트.** `at.aimon.memory.engine.prompt.Prompts` — 추출, 요약, dialectic, 세 명의 dream
+  전문가, peer 카드. 명세가 서술하는 동작을 놓고, 각각이 피해야 할 실패 양상에서 출발해 썼다.
+- **스키마.** 구조화 출력 스키마는 손으로 썼고, 설명문은 코드 생성기가 아니라 모델을 겨냥해 썼다.
+- **SQL.** 명세의 스키마에서 출발해 쓰고, 설계가 요구하는 것들을 더했다
+  (`work_unit_claims`, `dreams`, `peer_cards`, 단계별 인덱스 마이그레이션).
 
-## Consequence
+스코어링 공식은 Apache-2.0 시스템에서 왔고 그것이 허용되는 일이며, 그 공식을 구현하는 클래스에 출처를
+밝혀 뒀다.
 
-Prompt quality has to be established empirically rather than inherited. That is a known cost, and it
-is why the fixture corpus and a qualitative evaluation set are part of the plan rather than an
-afterthought.
+## 결과
+
+프롬프트 품질은 물려받는 대신 경험적으로 확보해야 한다. 이미 알고 있는 비용이고, 픽스처 코퍼스와 정성
+평가 세트가 나중에 붙이는 것이 아니라 계획의 일부인 이유다.

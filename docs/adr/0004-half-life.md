@@ -1,36 +1,36 @@
-# ADR 0004 — The recency signal uses a real half-life
+**한국어** · [English](0004-half-life.en.md)
 
-**Status:** accepted · 2026-08-31
+# ADR 0004 — 최신성 신호는 진짜 반감기를 쓴다
 
-## Context
+**상태:** accepted · 2026-08-31
 
-The design specifies:
+## 맥락
+
+설계는 이렇게 지정한다.
 
 ```
 rec = exp(−Δdays / HALFLIFE_DAYS)      default 180 days
 ```
 
-Those two lines disagree with each other. `exp(−1) = 0.368`, so under that formula a value named
-`HALFLIFE_DAYS = 180` halves the signal at 125 days, not 180. The parameter is a mean lifetime
-wearing a half-life's name.
+이 두 줄은 서로 어긋난다. `exp(−1) = 0.368` 이므로, 저 공식에서 `HALFLIFE_DAYS = 180` 이라는 이름의
+값은 180일이 아니라 125일에 신호를 반으로 줄인다. 반감기라는 이름을 달고 있는 평균 수명이다.
 
-## Decision
+## 결정
 
 ```
 rec = 0.5 ^ (Δdays / halfLifeDays)
 ```
 
-## Why
+## 왜
 
-The number is exposed as workspace configuration for people to tune against their own data. A
-setting whose name promises one thing and delivers another is a bug in the interface, and the person
-who eventually notices will be doing it by bisecting ranking results.
+이 숫자는 사람들이 자기 데이터에 맞춰 조정하라고 workspace 설정으로 열어 둔 값이다. 이름이 약속한 것과
+다른 것을 내놓는 설정값은 인터페이스의 버그이고, 결국 그것을 알아채는 사람은 순위 결과를 이분 탐색하며
+알아채게 된다.
 
-The shape of the curve is unchanged — exponential decay either way — so nothing downstream is
-affected beyond the constant. `SignalTest.recencyHalvesEveryHalfLife` pins the corrected behaviour.
+곡선의 모양은 그대로다 — 어느 쪽이든 지수 감쇠라서, 상수 말고는 하류에 영향이 없다.
+`SignalTest.recencyHalvesEveryHalfLife` 가 고친 동작을 못 박는다.
 
-## Note
+## 덧붙임
 
-180 days remains an arbitrary starting value, as the design says plainly. It is configuration
-precisely because the right answer for a personal assistant and for a coding agent are different
-numbers, and neither is knowable in advance.
+180일이 임의의 출발값이라는 것은 설계가 분명히 말한 그대로다. 개인 비서에게 맞는 답과 코딩 에이전트에게
+맞는 답이 다른 숫자이고 둘 다 미리 알 수 없기 때문에, 바로 그래서 설정값이다.

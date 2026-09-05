@@ -1,59 +1,53 @@
-# ADR 0006 — Extraction runs once per observing pair, not once per batch
+**한국어** · [English](0006-fanout-cost.en.md)
 
-**Status:** accepted · 2026-08-31
+# ADR 0006 — 추출은 배치당 한 번이 아니라 관측하는 쌍마다 한 번 돈다
 
-## Context
+**상태:** accepted · 2026-08-31
 
-`aimon-memory-design.md` §4.4 specifies fan-out as **one LLM call, N collections**: extract the facts from a
-batch once, then write the same conclusions into every observing pair. The saving is the point — a
-five-person session would otherwise cost five times as much for what the design assumed was the same
-answer.
+## 맥락
 
-The implementation does not do this. `MessageIngestionService` enqueues one work unit per
-`(session, observer, observed)`, `RepresentationConsumer` runs per work unit, and
-`Prompts.deriver(observer, observed)` builds a different system prompt for each pair. A message
-spoken to four listeners who all observe the speaker costs five extraction calls, not one.
+`aimon-memory-design.md` §4.4 는 fan-out 을 **LLM 호출 1회, 컬렉션 N개**로 지정한다. 배치에서 사실을
+한 번 뽑아서 같은 결론을 모든 관측 쌍에 써 넣는 방식이다. 아끼는 것이 핵심이다 — 그러지 않으면 다섯 명이
+참여한 세션은, 설계가 같은 답이라고 가정한 것에 다섯 배를 낸다.
 
-That divergence went unrecorded for a while, and worse, three javadocs asserted the specified
-behaviour rather than the actual one — `DeriverService` said "extract once, then write the same
-result to every observing pair", which is precisely what does not happen. A comment that describes
-the design instead of the code is worse than no comment: it is the thing a reader trusts when
-estimating what a group session costs.
+구현은 그렇게 하지 않는다. `MessageIngestionService` 는 `(session, observer, observed)` 마다 work unit
+하나를 넣고, `RepresentationConsumer` 는 work unit 단위로 돌며,
+`Prompts.deriver(observer, observed)` 는 쌍마다 다른 시스템 프롬프트를 만든다. 화자를 모두 관측하는
+청자 네 명에게 한 메시지를 말하면 추출 호출은 한 번이 아니라 다섯 번이다.
 
-## Decision
+이 어긋남은 한동안 기록되지 않았고, 더 나쁘게는 javadoc 세 개가 실제 동작이 아니라 명세된 동작을
+주장하고 있었다. `DeriverService` 에는 "extract once, then write the same result to every observing
+pair" 라고 적혀 있었는데, 정확히 일어나지 않는 일이다. 코드가 아니라 설계를 서술하는 주석은 주석이 없는
+것보다 나쁘다. 그룹 세션의 비용을 가늠할 때 읽는 사람이 믿어 버리는 것이 그것이기 때문이다.
 
-**Keep the per-pair extraction. Record the cost.**
+## 결정
 
-The premise in the design — that the same answer serves every observer — is wrong, and it is wrong in
-the direction the whole product is built around. A pair is a directed memory: what `bob` may conclude
-about `alice` from a conversation is not what `alice` concludes about herself, and it is not what the
-room as a whole heard. The prompt says so explicitly:
+**쌍마다 추출하는 방식을 유지한다. 비용은 기록한다.**
+
+같은 답이 모든 observer 에게 통한다는 설계의 전제는 틀렸고, 하필 이 제품 전체가 딛고 선 방향으로 틀렸다.
+쌍은 방향이 있는 메모리다. `bob` 이 대화에서 `alice` 에 대해 내릴 수 있는 결론은 `alice` 가 자신에 대해
+내리는 결론이 아니고, 그 자리에 있던 사람들이 통틀어 들은 것도 아니다. 프롬프트가 그렇게 못 박는다.
 
 > Record only what %s could reasonably conclude about %s from this conversation.
 
-Sharing one extraction across pairs means one of two things. Either the prompt drops the
-observer/observed framing, and every pair stores the same third-person summary — at which point the
-pair is a storage detail rather than a perspective, and `PairScope`, the composite foreign key and
-the isolation tests are all guarding something that no longer has content. Or the framing is kept for
-one privileged pair and copied to the others, which is worse: `bob`'s memory would then contain
-`alice`'s conclusions about herself, asserted in her voice, with an audit trail saying `bob` derived
-them.
+추출 하나를 여러 쌍이 나눠 쓴다는 것은 둘 중 하나를 뜻한다. 프롬프트에서 observer/observed 틀을 걷어내
+모든 쌍이 같은 3인칭 요약을 저장하거나 — 그러면 쌍은 관점이 아니라 저장 방식의 세부가 되고, `PairScope`
+와 복합 외래키와 격리 테스트는 내용이 사라진 무언가를 지키게 된다. 아니면 특권을 가진 쌍 하나에만 틀을
+남기고 나머지에 복사하거나. 후자가 더 나쁘다. `bob` 의 메모리가 `alice` 자신에 대한 결론을 그의 목소리로
+단언한 채 담게 되고, 감사 추적에는 `bob` 이 도출했다고 적힌다.
 
-The cost is real and it is the price of the feature. It is **O(observing pairs)** per batch, and the
-pairs in a session of N mutually-observing peers are N self-pairs plus N(N−1) cross-pairs. Group
-sessions are therefore quadratic in participants, which is the number to know before turning
-`observe_others` on for a large room.
+비용은 실재하고, 그것이 이 기능의 값이다. 배치당 **O(관측 쌍 수)** 이고, 서로를 관측하는 N 명이 참여한
+세션의 쌍은 self-pair N 개에 교차 쌍 N(N−1) 개다. 따라서 그룹 세션은 참여자 수의 이차 함수이고, 큰 방에
+`observe_others` 를 켜기 전에 알아야 할 숫자가 이것이다.
 
-## Consequences
+## 결과
 
-- The three javadocs that claimed the opposite are corrected, and the README now states the cost
-  where it describes the write path.
-- `observe_others` is the lever. It defaults to true, which is right for the two-party case this is
-  built for and wrong for a fifty-person channel; a workspace that opens one should turn it off and
-  let the speaker's self-pair carry the memory.
-- Batching still pays, and pays per pair: the token and idle-flush gates mean a burst of messages to
-  the same pair is one call, not one per message. The multiplier is over observers, not over traffic.
-- If the quadratic term ever becomes the bill, the change with the best ratio is not a shared
-  extraction — it is fanning out **conclusions** from the speaker's self-pair through a cheaper
-  per-observer filter, which keeps the perspective and pays for it at a lower rate. That is a design
-  change, not a fix, and it needs its own evaluation.
+- 반대를 주장하던 javadoc 세 개는 바로잡았고, README 도 이제 쓰기 경로를 설명하는 자리에서 이 비용을
+  밝힌다.
+- `observe_others` 가 레버다. 기본값은 true 이고, 이 시스템이 겨냥한 2인 대화에는 맞지만 오십 명짜리
+  채널에는 틀리다. 그런 방을 여는 workspace 는 이것을 끄고 화자의 self-pair 가 메모리를 지게 두면 된다.
+- 배치는 여전히 이득이고, 쌍 단위로 이득이다. 토큰 게이트와 idle-flush 게이트 덕분에 같은 쌍으로 몰린
+  메시지 폭주는 메시지마다 한 번이 아니라 통틀어 한 번이다. 배수는 트래픽이 아니라 observer 수에 붙는다.
+- 언젠가 이 이차 항이 청구서가 된다면, 비율이 가장 좋은 변경은 추출을 공유하는 것이 아니다. 화자의
+  self-pair 에서 나온 **결론**을 더 싼 observer 별 필터로 뿌리는 것이다. 관점을 지키면서 더 낮은 요율로
+  값을 치른다. 그것은 고침이 아니라 설계 변경이고, 자기 몫의 평가가 필요하다.

@@ -1,36 +1,36 @@
-# ADR 0002 — Spring JDBC with hand-written SQL, not jOOQ codegen
+**한국어** · [English](0002-persistence.en.md)
 
-**Status:** accepted · 2026-08-31
+# ADR 0002 — jOOQ 코드 생성이 아니라 손으로 쓴 SQL 과 Spring JDBC
 
-## Context
+**상태:** accepted · 2026-08-31
 
-The plan calls for jOOQ with a code generator wired to Flyway. JPA was ruled out and stays ruled
-out — the composite foreign key on `(observer, observed, workspace_name)` is exactly the shape ORMs
-handle worst.
+## 맥락
 
-## Decision
+계획은 Flyway 에 물린 코드 생성기와 함께 jOOQ 를 쓰라고 한다. JPA 는 이미 배제됐고 계속 배제된다 —
+`(observer, observed, workspace_name)` 복합 외래키는 ORM 이 가장 못 다루는 모양이다.
 
-`JdbcClient` with hand-written SQL, plus a purpose-built `FilterCompiler` for the dynamic parts.
+## 결정
 
-## Why
+손으로 쓴 SQL 과 `JdbcClient`, 그리고 동적인 부분을 위한 전용 `FilterCompiler`.
 
-**Codegen needs a live database at build time.** Flyway runs, jOOQ introspects, generation happens,
-compilation follows. That is a real bootstrap cost on every clean checkout and in CI, paid for a
-type-safety benefit that the queries here mostly do not need — most are static strings against a
-schema that one migration file defines.
+## 왜
 
-**The dynamic query is one query.** `FilterCompiler` is the only place SQL is assembled at runtime,
-it is about a hundred and fifty lines, and it does the two things that matter more than type safety:
-an allowlist of filterable columns, and strict operand coercion. Both are enforced by tests
-(`FilterCompilerTest`) rather than by a generated schema.
+**코드 생성은 빌드 시점에 살아 있는 데이터베이스를 요구한다.** Flyway 가 돌고, jOOQ 가 스키마를 읽고,
+생성이 일어나고, 그다음에 컴파일한다. 깨끗한 체크아웃마다 그리고 CI 마다 물어야 하는 실제 비용이고,
+그 대가로 얻는 타입 안전성은 여기 질의 대부분에 필요하지 않다. 대부분은 마이그레이션 파일 하나가
+정의하는 스키마를 향한 정적 문자열이다.
 
-**Vectors, `jsonb` and arrays would need custom bindings anyway.** pgvector through jOOQ means a
-converter and a binding per type. Through JDBC it means `?::vector` and a fifteen-line helper.
+**동적 질의는 한 개다.** `FilterCompiler` 는 런타임에 SQL 을 조립하는 유일한 자리이고, 백오십 줄쯤
+되며, 타입 안전성보다 중요한 두 가지를 한다. 필터 가능한 컬럼의 allowlist, 그리고 엄격한 피연산자
+강제 변환. 둘 다 생성된 스키마가 아니라 테스트(`FilterCompilerTest`)가 강제한다.
 
-## Cost
+**벡터·`jsonb`·배열은 어차피 커스텀 바인딩이 필요하다.** jOOQ 로 pgvector 를 다루면 타입마다 컨버터와
+바인딩이 하나씩 붙는다. JDBC 로는 `?::vector` 와 열다섯 줄짜리 헬퍼면 된다.
 
-No compile-time check that a column exists. Mitigated by column lists in one place (`Sql`), one
-mapper per table (`RowMappers`), and Testcontainers coverage of every query — a renamed column fails
-the suite immediately rather than at runtime.
+## 비용
 
-Revisiting this is a contained change: the repositories are the only thing that would move.
+컬럼이 존재하는지 컴파일 시점에 확인할 방법이 없다. 컬럼 목록을 한 곳(`Sql`)에 모으고, 테이블마다
+매퍼 하나(`RowMappers`)를 두고, 모든 질의를 Testcontainers 로 덮어 완화한다 — 컬럼 이름을 바꾸면
+런타임이 아니라 스위트가 즉시 실패한다.
+
+이 결정을 다시 들여다보는 일은 범위가 한정돼 있다. 움직일 것은 리포지토리뿐이다.

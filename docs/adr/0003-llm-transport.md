@@ -1,31 +1,33 @@
-# ADR 0003 — Direct HTTP to providers, not their SDKs
+**한국어** · [English](0003-llm-transport.en.md)
 
-**Status:** accepted · 2026-08-31
+# ADR 0003 — 제공자 SDK 가 아니라 직접 HTTP
 
-## Context
+**상태:** accepted · 2026-08-31
 
-The design says "official SDKs plus a thin abstraction, for control over the tool loop".
+## 맥락
 
-## Decision
+설계는 "툴 루프를 통제하기 위해, 공식 SDK 위에 얇은 추상을 얹는다"라고 말한다.
 
-`java.net.http.HttpClient` and Jackson, against the providers' documented REST APIs.
+## 결정
 
-## Why
+`java.net.http.HttpClient` 와 Jackson 으로 제공자의 문서화된 REST API 를 직접 부른다.
 
-**The abstraction was going to exist regardless.** The design already requires one, for exactly the
-reason it states: the tool loop has to be controlled here. Two SDKs behind one interface means
-maintaining two translations *and* two dependency surfaces instead of two translations.
+## 왜
 
-**Recording needs a boundary the SDK does not offer.** `RecordingChatBackend` wraps the provider
-primitive, which is what lets a ten-step agentic loop replay step by step without the harness
-modelling loops. Reaching that seam through an SDK means intercepting its HTTP layer, which is
-neither stable nor supported.
+**추상은 어차피 있어야 한다.** 설계가 이미 하나를 요구하고, 그 이유도 스스로 밝힌다. 툴 루프는 여기서
+통제해야 한다. 인터페이스 하나 뒤에 SDK 둘을 두면 번역 두 벌을 유지하는 대신 번역 두 벌 *더하기*
+의존성 표면 두 벌을 유지하게 된다.
 
-**The provider surface used here is small** — chat completions with tools and structured output, plus
-SSE. It is a few hundred lines per provider, all of it visible.
+**기록에는 SDK 가 내주지 않는 경계가 필요하다.** `RecordingChatBackend` 는 제공자 프리미티브를
+감싸는데, 그 덕에 열 단계짜리 에이전틱 루프가 하네스에 루프를 모델링하지 않고도 한 단계씩 재생된다.
+SDK 를 통해 그 이음매에 닿으려면 SDK 의 HTTP 계층을 가로채야 하고, 그것은 안정적이지도 지원되지도
+않는다.
 
-## Cost
+**여기서 쓰는 제공자 표면은 작다** — 툴과 구조화 출력이 붙은 chat completion, 그리고 SSE. 제공자당 몇백
+줄이고 전부 눈에 보인다.
 
-New provider features need explicit support rather than arriving with a version bump. Breaking API
-changes surface as test failures rather than compile errors. Both are acceptable for a surface this
-narrow, and the second is what the fixture corpus is for.
+## 비용
+
+제공자의 새 기능은 버전만 올려서는 들어오지 않고 명시적으로 지원해야 한다. API 파괴적 변경은 컴파일
+오류가 아니라 테스트 실패로 드러난다. 이 정도로 좁은 표면에서는 둘 다 감수할 만하고, 두 번째를 위해
+픽스처 코퍼스가 있다.
