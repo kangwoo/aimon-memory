@@ -1,14 +1,19 @@
 rootProject.name = "aimon-memory"
 
 dependencyResolutionManagement {
-    // `mavenLocal()` is here for one coordinate: `at.aimon.core:aimon-memory-testkit`, which the contract
-    // source set in `aimon-memory-client` subclasses and which is on no remote repository until aimon-core
-    // 0.3.0 ships. Nothing on the path from `git clone` to `checkAll` reaches through it — aimon-core itself
-    // is pinned to a released 0.2.4 (gradle/libs.versions.toml) — so a machine that has never published
-    // aimon-core locally builds and passes every gate, and only the contract tier skips itself.
+    // The snapshot repository is here for one coordinate: `at.aimon.core:aimon-memory-testkit`, which the
+    // contract source set in `aimon-memory-client` subclasses and which has no release until aimon-core 0.3.0
+    // ships. It replaced `mavenLocal()`, and the difference is the whole point — a local publish is resolvable
+    // on exactly one machine, so the contract tier ran there and skipped everywhere else, CI included. That is
+    // the state the testkit was published to end, and pointing at a repository every machine can read ends it
+    // without waiting for the release.
     //
-    // Ordered after Central so a released artifact always wins over whatever a `publishToMavenLocal` left
-    // behind. Remove it when 0.3.0 puts the testkit on Central and `aimonTestkit` folds back into `aimonCore`.
+    // Scoped with `includeModule` rather than left open: this repository holds unreleased builds of everything
+    // in aimon-core, and only this one coordinate has a reason to come from it. Anything else that resolved
+    // here would be a snapshot nobody chose.
+    //
+    // Ordered after Central so a released artifact always wins. Remove the whole block when 0.3.0 puts the
+    // testkit on Central and `aimonTestkit` folds back into `aimonCore`.
     //
     // Note these are the fallback and not the repositories in force: the root build.gradle.kts declares them
     // per project, and Gradle's default `PREFER_PROJECT` mode lets those win — it says so in the resolution
@@ -16,7 +21,11 @@ dependencyResolutionManagement {
     // does not depend on which one a reader happens to find.
     repositories {
         mavenCentral()
-        mavenLocal()
+        maven {
+            name = "centralSnapshots"
+            url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+            content { includeModule("at.aimon.core", "aimon-memory-testkit") }
+        }
     }
 }
 

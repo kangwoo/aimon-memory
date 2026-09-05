@@ -21,11 +21,15 @@ allprojects {
 
     repositories {
         mavenCentral()
-        // Paired with the same line in settings.gradle.kts — the reason is written out there. One coordinate
+        // Paired with the same block in settings.gradle.kts — the reason is written out there. One coordinate
         // needs it, `at.aimon.core:aimon-memory-testkit`, and only the opt-in contract tier asks for that one.
         // Both blocks are needed and this is the one that wins: project repositories take precedence over the
         // settings block under Gradle's default `PREFER_PROJECT` mode.
-        mavenLocal()
+        maven {
+            name = "centralSnapshots"
+            url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+            content { includeModule("at.aimon.core", "aimon-memory-testkit") }
+        }
     }
 }
 
