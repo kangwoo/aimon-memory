@@ -24,7 +24,7 @@ jjwt            = "0.13.0"
 # docs/openapi.json locally.
 springdoc       = "2.9.0"
 assertj         = "3.27.7"
-spotless        = "6.25.0"
+spotless        = "8.10.1"
 checkstyle      = "10.12.5"
 mavenPublish    = "0.37.0"
 
