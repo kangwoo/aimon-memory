@@ -641,7 +641,8 @@ You get `actor` (who), `event` (what), and `beforeContent` / `afterContent` (how
 | `delete` `expire` `restore` | soft-deleted / expired / brought back |
 | `sync_failed` | The embedding call failed, so it is invisible to semantic recall until retried |
 
-Watch `sync_failed` in particular. That conclusion exists but the `sem` signal cannot see it.
+Watch `sync_failed` in particular. That conclusion exists but the `sem` signal cannot see it. The
+reason goes into the event's `detail` as `sync_error`, under the same rule as a dream's `error` — §13.
 
 ### The reasoning chain
 
@@ -776,7 +777,9 @@ curl -s -G localhost:8080/v1/workspaces/demo/dreams "${auth[@]}" \
 | `consolidate` | Deduction, induction, contradiction search. Produces new conclusions |
 | `card_refresh` | Regenerates the peer card and nothing else |
 
-Read the outcome from `status`, `produced` and `error` in the listing.
+Read the outcome from `status`, `produced` and `error` in the listing. `error` says why it failed, but
+not just anything goes in it — a failure this build worded (the ones with a `code` in §13) arrives
+whole, and anything else is summarised to one line. The rule is in §13.
 
 ### Peer cards
 
@@ -863,9 +866,26 @@ provider's response body (a 401 that quotes your own API key back), a model's ou
 build assembles on your behalf, and server file paths **do not go in the body.** All of it is in the
 server log, uncut.
 
-One error arrives on a 200: the `error` field of `GET /v1/workspaces/{ws}/dreams` is the message a
-failed dream left behind, and the same rule applies to it — neither the prompt sent to the model nor a
-server path is in there.
+**Two** errors arrive on a 200. The `error` field of `GET /v1/workspaces/{ws}/dreams` is the message a
+failed dream left behind, and the `sync_error` in a `sync_failed` event's `detail` from
+`GET /v1/workspaces/{ws}/conclusions/{id}/events` is why an embedding backfill failed. Neither is an
+answer to a request — both are the worker's leavings, read later — so neither has a `code` or a status
+code beside it. The string is the whole channel.
+
+**Which is why the rule is about who a message was written for.** A failure this build worded — the
+ones with a `code` in the table above — was written for whoever asked, and arrives whole. A dream that
+fails with `llm_not_configured` puts that sentence in `error`, and it is actionable: go and configure a
+provider. Everything else — what a driver, a library or the JDK wrote for whoever reads the log — is
+summarised to one line.
+
+```json
+{"status": "failed", "error": "an internal failure; see the server log"}
+```
+
+A single Postgres error carries the statement it was executing, the constraint and the relation, and
+for a not-null or check violation appends `Detail: Failing row contains (…)` — **the row itself**. On
+the HTTP path `constraint_violation` (409) has always refused that text. The same exception raised
+inside a dream used to come back on a 200; it no longer does.
 
 This means a 5xx body is not, by itself, enough to diagnose one — that is the intent. `code` tells you
 what failed (`store_failed`, `llm_transport`, `bad_json`, …) and, for a provider error, the status

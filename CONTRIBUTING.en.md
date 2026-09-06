@@ -32,8 +32,8 @@ docker compose up -d
 
 | Command | What it proves | Docker | When |
 |---|---|:-:|---|
-| `./gradlew checkAll` | Formatting, style, the BOM, the 275 tests that need no database, and the 21 contract cases | no | on every save |
-| `./gradlew integrationTest` | The 285 Testcontainers tests | yes | before opening a PR |
+| `./gradlew checkAll` | Formatting, style, the BOM, the 278 tests that need no database, and the 21 contract cases | no | on every save |
+| `./gradlew integrationTest` | The 290 Testcontainers tests | yes | before opening a PR |
 | `./gradlew :aimon-memory-client:contractTest` | aimon-core's 21 `PeerMemory` contract cases | no | `checkAll` already calls it; see below |
 | `./gradlew :aimon-memory-worker:loadTest` | Concurrent readers and writers under contention | yes | when you touch the worker or the queue |
 

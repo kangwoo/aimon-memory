@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.key.WorkUnitKey;
 import at.aimon.memory.core.model.Actor;
@@ -199,8 +200,21 @@ public class ReconcilerService {
         } catch (RuntimeException e) {
             // Marked failed rather than retried forever: the next pass will pick it up, and the state
             // is visible in the audit log meanwhile instead of the row just being quietly unsearchable.
-            pending.forEach(c -> conclusions.markSyncFailed(c.pair().workspaceName(), c.id(), e.getMessage()));
-            log.warn("embedding sync failed for {} conclusions: {}", pending.size(), e.getMessage());
+            //
+            // `publicMessageOf`, not `getMessage`, because this detail is returned: `markSyncFailed`
+            // writes it as a `sync_error` on a SYNC_FAILED event and `GET /conclusions/{id}/events`
+            // hands the event's whole detail map back in a 200. The previous sweep left this one on
+            // `getMessage` after checking that no fixture miss reaches it — true, and beside the
+            // point, because the other call in this try is `updateEmbedding`, a JDBC UPDATE. Measured
+            // with the column re-typed and the backfill still on the old width: the event carried
+            // `PreparedStatementCallback; SQL [UPDATE conclusions SET embedding = ?::vector, …];
+            // ERROR: expected 512 dimensions, not 1536` — the statement and the schema, on a 200.
+            //
+            // The log takes the exception itself now, not just its message. The stored event no longer
+            // holds a copy, so this line is the only place the driver's own words survive.
+            pending.forEach(c -> conclusions.markSyncFailed(c.pair().workspaceName(), c.id(),
+                    MemoryException.publicMessageOf(e)));
+            log.warn("embedding sync failed for {} conclusions: {}", pending.size(), e.getMessage(), e);
             return 0;
         }
     }

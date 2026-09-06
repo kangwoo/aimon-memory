@@ -623,7 +623,8 @@ curl -s -G localhost:8080/v1/workspaces/demo/conclusions/{id}/events "${auth[@]}
 | `delete` `expire` `restore` | 지워짐 / 만료됨 / 되살아남 |
 | `sync_failed` | 임베딩 호출이 실패해서, 재시도 전까지 시맨틱 recall 에 안 보임 |
 
-`sync_failed` 를 특히 볼 것. 그 결론은 존재하지만 `sem` 신호에 잡히지 않는다.
+`sync_failed` 를 특히 볼 것. 그 결론은 존재하지만 `sem` 신호에 잡히지 않는다. 이유는 이벤트
+`detail` 의 `sync_error` 에 들어가고, dream 의 `error` 와 같은 규칙이 걸린다 — §13.
 
 ### 추론 사슬
 
@@ -756,7 +757,9 @@ curl -s -G localhost:8080/v1/workspaces/demo/dreams "${auth[@]}" \
 | `consolidate` | 연역·귀납·모순 탐색. 새 결론을 만든다 |
 | `card_refresh` | peer card 만 다시 만든다 |
 
-목록의 `status`, `produced`, `error` 로 결과를 본다.
+목록의 `status`, `produced`, `error` 로 결과를 본다. `error` 는 실패 원인이지만 아무거나 담기지
+않는다 — 이 빌드가 지은 오류(§13 의 `code` 가 붙는 것들)면 그 문장 그대로, 그 밖의 실패면 한 줄짜리
+요약이다. 규칙은 §13 에 있다.
 
 ### peer card
 
@@ -839,8 +842,24 @@ IDENTITY:      ATTRIBUTE:      RELATIONSHIP:      INSTRUCTION:
 (자기 API 키를 되돌려주는 401 이 있다), 모델의 출력, 이 빌드가 당신 대신 지은 프롬프트, 서버의 파일
 경로는 **본문에 들어가지 않는다.** 전부 서버 로그에 잘리지 않은 채로 있다.
 
-오류가 200 으로 오는 자리도 하나 있다. `GET /v1/workspaces/{ws}/dreams` 의 `error` 는 실패한 dream 이
-남긴 메시지이고, 같은 규칙이 걸린다 — 모델에 보낸 프롬프트도, 서버 경로도 거기 없다.
+오류가 200 으로 오는 자리는 **둘**이다. `GET /v1/workspaces/{ws}/dreams` 의 `error` 는 실패한 dream 이
+남긴 메시지이고, `GET /v1/workspaces/{ws}/conclusions/{id}/events` 의 `sync_failed` 이벤트 `detail` 에
+실리는 `sync_error` 는 임베딩 백필이 실패한 이유다. 둘 다 요청에 대한 응답이 아니라 워커가 남긴 것을
+읽는 자리라서 `code` 도, 상태 코드도 없다 — 그 문자열이 통로의 전부다.
+
+**그래서 규칙은 "누가 읽으라고 쓴 문장인가"다.** 이 빌드가 직접 지은 오류 — 위 표의 `code` 가 붙는
+것들 — 은 호출자에게 쓴 문장이므로 그대로 나온다. dream 이 `llm_not_configured` 로 실패하면 `error` 에
+그 문장이 그대로 실리고, 그건 설정을 고치라는 말이라 호출자가 행동에 옮길 수 있다. 나머지 — 드라이버,
+라이브러리, JDK 가 **로그를 읽을 사람에게** 쓴 문장 — 는 한 줄로 요약된다.
+
+```json
+{"status": "failed", "error": "an internal failure; see the server log"}
+```
+
+Postgres 오류 하나가 실행된 문장 전체와 제약·릴레이션 이름을 담고, not-null·check 위반이면 `Detail:
+Failing row contains (…)` 로 **실패한 행 자체**를 덧붙인다. HTTP 경로에서는 `constraint_violation`
+(409) 이 예전부터 그 텍스트를 거부해 왔다. 같은 예외가 dream 안에서 터졌을 때 200 으로 나가던 것이
+이제 나가지 않는다.
 
 그래서 5xx 를 받으면 본문만으로는 진단할 수 없는 것이 정상이다. `code` 는 무엇이 실패했는지
 (`store_failed` · `llm_transport` · `bad_json` …)를, 제공자 오류라면 상태 코드를 말해 준다. 그 이상이

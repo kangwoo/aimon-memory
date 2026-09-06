@@ -83,6 +83,12 @@ public class DreamConsumer implements WorkUnitConsumer {
                 // 200. A card refresh is a model call, so a deployment left on the default replay mode
                 // fails here with the whole assembled prompt and an absolute server path in the
                 // message — see `MemoryException.publicMessage`. `WorkerLoop` logs the full one.
+                //
+                // That covers the `MemoryException`s. The rest of what a `catch (RuntimeException)`
+                // holds — a `DataAccessException` from the card's own write, above all — is worded by
+                // a driver for the log, and `publicMessageOf` now summarises it rather than storing
+                // it. Nothing is lost: the rethrow below reaches `WorkerLoop`, which logs the whole
+                // exception with its stack before recording it in `queue.last_error`.
                 dreamIds.forEach(id -> dreams.fail(id, MemoryException.publicMessageOf(e)));
                 throw e;
             }

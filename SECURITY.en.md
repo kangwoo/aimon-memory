@@ -122,9 +122,19 @@ boundary is a rule with a second way out. The split therefore lives on the excep
 > Setting a provider and leaving `AIMON_MEMORY_LLM_MODE` unset is a **misconfiguration**, not a
 > supported deployment: the service will serve nothing but `fixture_miss`. Set the mode explicitly.
 
-`ErrorBodyLeakTest` and `FixtureMissBodyTest` (API) and `ProviderErrorLeakTest` and
-`ReplayHarnessTest` (LLM) pin the rule. If you find a value in any response body that you never sent,
-that is a vulnerability in the sense this document means.
+**The rule turns on where the exception came from.** Everything above is about the exceptions this
+build words itself (`MemoryException`). Anything else — what a driver, a library or the JDK wrote for
+whoever reads the log — is not quoted at all; it is summarised to `an internal failure; see the server
+log`. A single Postgres error carries the statement it was executing, the constraint and the relation,
+and on a not-null or check violation the failing row with it. `ApiExceptionHandler` has always refused
+that text on the HTTP path (`constraint_violation`, and the catch-all), and the two errors that arrive
+on a 200 — a failed dream's `error` and a `sync_failed` event's `sync_error` — now match it. The log
+keeps all of it.
+
+`ErrorBodyLeakTest`, `FixtureMissBodyTest` and `DreamErrorBodyLeakTest` (API), `ProviderErrorLeakTest`,
+`ReplayHarnessTest` and `ToolLoopTest` (LLM), and `CardRefreshConsumerTest` and `ReconcilerTest`
+(worker) pin the rule. If you find a value in any response body that you never sent, that is a
+vulnerability in the sense this document means.
 
 ### Credentials and model calls
 

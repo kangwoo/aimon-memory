@@ -36,6 +36,19 @@ public abstract class ApiTestBase {
         registry.add("spring.datasource.password", PostgresSupport::password);
         registry.add("aimon.memory.jwt.secret", () -> "a-test-secret-that-is-long-enough-for-hs256");
         registry.add("spring.flyway.enabled", () -> "false");
+        // One container, one pool per Spring context, and a test configuration that differs in any
+        // property gets a context of its own. Twenty connections apiece — not Boot's default of ten but
+        // `AIMON_MEMORY_DB_POOL` in this module's own `application.yml`, which a `@SpringBootTest` on
+        // `ApiApplication` reads like any other run — exhausted Postgres's hundred as the sixth context
+        // came up: `FATAL: sorry, too many clients already`, raised while `EmbeddingDimensionCheck` was
+        // initialising, so three unrelated tests failed on a class none of them touch.
+        //
+        // Counted in `pg_stat_activity` while the tier runs, the total is a staircase of one step per
+        // context above the sixteen the testkit's own pool holds. Five contexts reached 99 of the
+        // hundred and passed, which is what makes the sixth the one that fell over rather than the
+        // greedy one: there was no headroom left to take. Nothing here needs more than a few — MockMvc
+        // drives one request at a time — and five apiece puts the same staircase at 47.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "5");
     }
 
     @BeforeEach

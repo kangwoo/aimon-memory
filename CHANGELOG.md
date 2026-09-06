@@ -320,6 +320,32 @@
   하나가 아니기 때문이다. 실패한 dream 은 예외 메시지를 `dreams.error` 에 저장하고
   `Dtos.DreamResponse` 가 그 컬럼을 **200** 으로 돌려준다 — 5xx 경계에서만 막으면 같은 값이 그리로
   나간다. 두 자리 모두 이제 `publicMessage` 를 쓴다.
+- **200 으로 나가는 두 자리도 이제 호출자에게 쓴 문장만 싣는다.** `MemoryException.publicMessageOf` 는
+  `MemoryException` 이 아닌 예외에는 그 예외의 메시지를 그대로 돌려주고 있었다 — 즉 규칙이 걸린 것은
+  `catch (RuntimeException)` 이 잡는 것들 중 **이 빌드가 지은 절반뿐**이었다. 나머지 절반은 드라이버·
+  라이브러리·JDK 가 로그를 읽을 사람에게 쓴 문장이다. Postgres 오류 하나가 실행된 문장 전체와 제약·
+  릴레이션 이름을 담고, not-null·check 위반이면 `Detail: Failing row contains (…)` 로 실패한 행 자체를
+  덧붙인다. 실측: dream 이 not-null 컬럼에 걸린 배포에서 `GET /v1/workspaces/{ws}/dreams` 가 **200**
+  으로 1,462바이트를 돌려줬고, 그 안에 INSERT 문 전체, 모든 컬럼 이름, `ON CONFLICT` 의 중복 제거 범위,
+  그리고 dream 이 방금 도출한 결론의 원문·정규화형·해시·벡터 앞부분이 들어 있었다. 같은 예외가 HTTP
+  경로로 나가면 `ApiExceptionHandler.constraint` 가 124바이트로 거절한다 — 한쪽 문으로 막은 것이 다른
+  쪽 문으로 나가고 있었다. 이제 `MemoryException` 이 아닌 것은 전부 `an internal failure; see the
+  server log` 한 줄이 된다. 같은 규칙이 `GET /v1/workspaces/{ws}/conclusions/{id}/events` 가 200 으로
+  돌려주는 `sync_error` 에도 걸린다(임베딩 백필의 UPDATE 가 실패하면 문장과 스키마가 실렸다). `dreams.error`
+  를 응답에서 빼지 않은 이유는, dream 은 워커에서 실패해서 5xx 도 `code` 도 없고 그 문자열이 통로의
+  전부이기 때문이다 — `llm_not_configured` 처럼 호출자가 고칠 수 있는 실패와 서버 고장을 구분할 방법이
+  사라진다.
+- **도구 실패 문자열에도 같은 규칙이 걸린다.** `DefaultLlmClient` 는 실패한 도구를 모델에게 결과로
+  돌려주고, 모델의 답변은 `POST /chat` 의 200 본문이 된다 — 메시지가 호출자에게 닿는 가장 먼 경로다.
+  도구는 recall 과 search 라 저장소를 건드리고, 거기서 나온 `DataAccessException` 이 그대로 모델에게
+  가고 있었다. 이제 `MemoryException` 만 그대로 가고 나머지는 요약된다. 그래서 `ToolRegistry` 가 모델의
+  잘못된 도구 인자에 던지던 예외는 `IllegalArgumentException` 에서 `MemoryException`
+  (`bad_tool_arguments`) 이 됐다 — 그 문장은 모델더러 인자를 고쳐 다시 부르라고 쓴 것이고, 타입이
+  그 사실을 말하는 자리다.
+- **로그는 오히려 늘었다.** `ReconcilerService` 의 임베딩 실패 로그는 이제 예외 자체(스택 포함)를 받고,
+  `DefaultLlmClient` 는 실패한 도구 호출을 로그로 남긴다 — 예전에는 아무 데도 남지 않았고 요약만
+  모델에게 갔다. `queue.last_error` 는 그대로 전체 메시지를 담는다. 라우트가 읽지 않는 컬럼이고
+  (`QueueRepository.QueueItem` 에 오류 필드가 없다), 운영자의 runbook SQL 이 유일한 독자다.
 - `Jsonb` 자리는 **요청으로 도달할 수 없다.** 이 컬럼들에 쓰는 경로는 전부 `Map<String, Object>` 나
   `List<String>` 로 타입이 잡혀 있고 Postgres 가 jsonb 를 입력에서 검증하므로, ingress 를 통과한 본문은
   읽기도 통과한다. 이 빌드가 쓰지 않은 바이트(운영자의 UPDATE, 복구, 손으로 쓴 마이그레이션)에서만
