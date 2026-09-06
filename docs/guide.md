@@ -445,6 +445,12 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/chat "${auth[@]}" \
   }'
 ```
 
+`history` 의 `role` 은 `assistant` 하나만 구분하고, 대소문자는 가리지 않는다. 나머지 값은 — `user` 도,
+`system` 도, 오타 난 `assistnat` 도 — 전부 사용자 턴으로 읽힌다. `minLength: 1` 말고는 거절하는 것이 없고
+응답에도 드러나지 않으므로, 전사(轉寫)를 만드는 쪽이 철자를 맞춰야 한다. 스키마가 `role` 을 열린 문자열로
+두고 있는 것은 그래서다. 이 값은 프롬프트에만 쓰이고 저장되지 않는다 — 잘못 붙인 역할은 그 답변 하나를
+망칠 뿐이다.
+
 `reasoningLevel` 이 반복 상한과 도구 세트를 함께 정한다. 기본값 `medium`.
 
 | 레벨 | 최대 반복 | 도구 |

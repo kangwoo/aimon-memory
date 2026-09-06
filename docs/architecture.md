@@ -361,8 +361,8 @@ ADR 은 **명세에서 벗어난 자리**만 기록한다. 벗어나지 않은 �
 ### 관문
 
 ```
-545  tests, all green
-254  need no database        (`test`)          ┐
+547  tests, all green
+256  need no database        (`test`)          ┐
  21  aimon-core's suite      (`contractTest`)  ┘ the fast gate, `checkAll`
 270  need Postgres           (`integrationTest`)
 ```

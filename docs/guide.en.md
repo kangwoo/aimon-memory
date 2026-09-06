@@ -458,6 +458,13 @@ curl -s -X POST localhost:8080/v1/workspaces/demo/chat "${auth[@]}" \
   }'
 ```
 
+Only `assistant` is distinguished in a `history` entry's `role`, and it is matched
+case-insensitively. Every other value — `user`, `system`, a misspelled `assistnat` — is read as a
+user turn. Nothing beyond `minLength: 1` rejects it and nothing in the response reveals it, so the
+caller assembling the transcript is the one that has to spell it right; that is why the schema
+leaves `role` an open string. The value only shapes the prompt and is never stored, so a mis-rolled
+turn costs that one answer and nothing after it.
+
 `reasoningLevel` sets both the iteration cap and the toolset. Default `medium`.
 
 | Level | Max iterations | Tools |

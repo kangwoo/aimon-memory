@@ -10,7 +10,15 @@ import at.aimon.memory.text.TokenSetScore;
  *
  * <p>Two conclusions are within the cosine threshold; one of them has to go. The rule is information
  * content, not recency and not length: {@code |tokens| + 10 × |distinct tokens|}. Length alone would
- * let "alice works in Gangnam, Seoul, and she works there" beat "alice works in Gangnam, Seoul".
+ * let "alice works at a bank, alice works at a bank" beat "alice works at a Gangnam bank" — ten
+ * tokens against six — where the weight puts the specific one ahead, 66 to 60.
+ *
+ * <p>The example has to repeat tokens to show anything, and the one that stood here until now did
+ * not: "alice works in Gangnam, Seoul, and she works there" against "alice works in Gangnam, Seoul"
+ * is padding whose every added word is also a new distinct token, so the weight it was meant to
+ * illustrate <em>funds</em> the longer string instead of penalising it — 89 to 55 at the default
+ * weight, the opposite of what the comment claimed. The formula was never wrong; the example was.
+ * {@code DedupPolicyTest} pins the real behaviour at both weights.
  *
  * <p>Ties go to the newcomer. That keeps the store converging on the most recent phrasing of a fact
  * that keeps being restated, instead of freezing the first wording forever.
