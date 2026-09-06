@@ -176,7 +176,7 @@
       "CreateConclusion" : {
         "properties" : {
           "content" : {
-            "maxLength" : 800,
+            "maxLength" : 32000,
             "minLength" : 1,
             "type" : "string"
           },

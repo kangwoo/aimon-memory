@@ -3,6 +3,7 @@ package at.aimon.memory.store.repo;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,6 +52,21 @@ public class ConclusionRepository implements ConclusionStore {
 
     private static final String ALIVE = "c.deleted_at IS NULL AND (c.expires_at IS NULL OR c.expires_at > now())";
     private static final String PAIR_SCOPE = "c.workspace_name = ? AND c.observer = ? AND c.observed = ?";
+
+    /**
+     * Dedup stage 2's predicate, package-private so the index gate can EXPLAIN it rather than a copy.
+     *
+     * <p>Two halves that have to stay together. {@code ix_concl_norm} is an index on
+     * {@code md5(content_norm)} — V13 made it one, because a btree over the content itself refused any
+     * entry above 2704 bytes and so let the length of a conclusion decide whether it could be stored.
+     * The first half is what reaches that index; the second is what makes the stage exact, so an md5
+     * collision costs one heap tuple fetched and discarded instead of a false REINFORCE.
+     *
+     * <p>Dropping either half is silent. Without {@code md5(...)} the plan falls back to a scan of
+     * {@code ix_concl_pair} and nothing errors; without the equality the wrong row can be returned and
+     * nothing errors either. {@code IndexUsageTest} asserts on both.
+     */
+    static final String NORM_LOOKUP = "md5(c.content_norm) = md5(?) AND c.content_norm = ?";
 
     private final JdbcClient jdbc;
     private final EventLog events;
@@ -215,6 +231,10 @@ public class ConclusionRepository implements ConclusionStore {
      * <p>Three stages, cheapest first. A hash lookup on an index answers most calls; normalisation
      * catches the cases where two analyzers disagreed about whitespace; only what survives both pays
      * for a vector search.
+     *
+     * <p>Stage 2's index is on a hash of the normalised text rather than on the text, so that a long
+     * conclusion is still storable; the equality that sits beside the hash in {@link #NORM_LOOKUP} is
+     * what keeps the stage exact.
      */
     @Override
     @Transactional
@@ -227,7 +247,7 @@ public class ConclusionRepository implements ConclusionStore {
             return reinforce(byHash.get(), draft, 1, Double.NaN);
         }
 
-        Optional<Conclusion> byNorm = findInScope(draft, "c.content_norm = ?", draft.contentNorm());
+        Optional<Conclusion> byNorm = findInScope(draft, NORM_LOOKUP, draft.contentNorm(), draft.contentNorm());
         if (byNorm.isPresent()) {
             return reinforce(byNorm.get(), draft, 2, Double.NaN);
         }
@@ -495,9 +515,11 @@ public class ConclusionRepository implements ConclusionStore {
     private record Neighbour(Conclusion conclusion, double distance) {
     }
 
-    private Optional<Conclusion> findInScope(ConclusionDraft draft, String predicate, Object value) {
+    private Optional<Conclusion> findInScope(ConclusionDraft draft, String predicate, Object... values) {
         List<Object> params = new ArrayList<>(dedupScopeParams(draft));
-        params.add(value);
+        // Collections.addAll rather than List.of, which rejects nulls: a predicate with a nullable
+        // operand would throw out of the parameter assembly instead of reaching SQL.
+        Collections.addAll(params, values);
         return jdbc
                 .sql("SELECT " + Sql.CONCLUSION_COLUMNS + " FROM conclusions c WHERE " + dedupScopeSql(draft) + " AND "
                         + predicate + " ORDER BY c.created_at LIMIT 1")
