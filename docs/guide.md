@@ -224,7 +224,10 @@ curl -s -X DELETE localhost:8080/v1/workspaces/demo/sessions/s1/peers/alice "${a
 ```
 
 `PUT` 은 명단을 통째로 갈아 끼우고, `POST` 는 더한다. `peer` 는 **비어 있을 수 없다** — 공백뿐인
-이름은 400 이다.
+이름은 400 이다. 한 요청에 **최대 100명**이고, 넘으면 400 이다 — 메시지 배치와 같은 숫자다. 잘라 주지
+않는다: `PUT` 에서 잘라 내면 넘친 사람들이 그냥 안 들어가는 게 아니라 **세션에서 빠지고** 지금까지의
+대화를 읽을 권한을 잃는다. 100명이 넘는 방을 만들어야 하면 `POST` 를 나눠서 부르면 되지만, 그 전에
+아래 fan-out 비용을 먼저 읽어라.
 
 멤버십에는 창이 있다. 나갔다가 다시 들어온 peer 는 처음에 들은 것을 유지하면서 그 사이의 공백은
 얻지 않는다. 메시지 시점에 없었던 사람의 기억에는 그 메시지가 들어가지 않는다.
@@ -650,7 +653,7 @@ curl -s -X PUT localhost:8080/v1/workspaces/demo/configuration "${auth[@]}" \
 | `recall.weights` | `[.50 .22 .13 .08 .05 .02]` | 여섯 수, 합 1.00 | 순서는 `[sem, kw, ent, reinf, rec, lvl]` |
 | `recall.half_life_days` | 180 | (0, 100000] | 최신성 신호가 절반이 되는 기간 |
 | `recall.threshold` | 0 | [0, 1] | **융합** 점수 하한 |
-| `recall.oversample` | 4 | [1, 100] | 각 신호 경로가 융합 전에 가져오는 후보 배수 |
+| `recall.oversample` | 4 | [1, 100] | 각 신호 경로가 융합 전에 가져오는 후보 배수. 아래 천 개 천장 참조 |
 | `recall.entity_top_k` | 10 | [1, 1000] | 부스트에 쓸 엔티티 이웃 수 |
 | `recall.entity_sim_cut` | 0.5 | [0, 1] | 이 밑의 엔티티 매치는 0 을 낸다 |
 | `dedup.cosine_distance_max` | 0.05 | [0, 2] | 3단계가 볼 최대 거리 |
@@ -663,6 +666,14 @@ curl -s -X PUT localhost:8080/v1/workspaces/demo/configuration "${auth[@]}" \
 
 배치 세 값은 0 을 허용한다. `or` 게이트라서 하나를 0 으로 두면 항상 참이 되고, 그게 배칭을 끄는
 방법이다.
+
+**`recall.oversample` 은 곱해진다.** 신호 경로 하나가 실제로 가져오는 행 수는 `limit × oversample`
+이고, `limit` 은 recall 요청이 정한다(상한 100). 그 곱이 **1000 을 넘으면 1000 으로 잘린다** —
+`recall.entity_top_k` 가 이미 상한으로 쓰고 있는 수, 즉 이 시스템이 신호 경로 하나에 허용하는 폭이다.
+거절이 아니라 clamp 다: `oversample: 100` 은 여전히 유효하고 기본 `limit` 10 에서는 정확히 1000 개를
+가져온다. clamp 가 걸렸는지는 응답에 드러나지 않는다. `candidatesConsidered` 는 신호 경로들이 실제로
+만들어 낸 합집합의 크기이지 요청한 폭이 아니다. 대신 **로그**가 `debug` 로 말한다 — 순위가 달라졌는데
+이것 때문인지 확인하려면 `AIMON_MEMORY_LOG_LEVEL=DEBUG` 로 올려라.
 
 ### 두 가지 함정
 
@@ -802,7 +813,7 @@ IDENTITY:      ATTRIBUTE:      RELATIONSHIP:      INSTRUCTION:
 | `bad_lifetime` | 400 | 30일 초과, 또는 0 이하 |
 | `bad_reasoning_level` | 400 | `minimal` `low` `medium` `high` `max` 중 하나가 아니다 |
 | `batch_too_large` | 400 | 한 요청에 메시지 100건 초과 |
-| `bad_request` | 400 | 본문이 JSON 이 아니거나 필드 제약을 어겼다. 빈 메시지 `content`(32000자 초과 포함), 빈 `peer` 이름, `history` 의 빈 turn, `entities` 의 빈 원소가 전부 여기다 |
+| `bad_request` | 400 | 본문이 JSON 이 아니거나 필드 제약을 어겼다. 빈 메시지 `content`(32000자 초과 포함), 빈 `peer` 이름, 한 요청에 참여자 100명 초과, `history` 의 빈 turn, `entities` 의 빈 원소가 전부 여기다 |
 | `bad_level` | 400 | 결론 등급이 네 값 중 하나가 아니다 |
 | `llm_not_configured` | 503 | 모델 제공자 없이 Tier 2 나 도출을 요구했다 |
 | `fixture_miss` | 503 | replay 모드인데 기록된 픽스처에 없는 호출이다 |

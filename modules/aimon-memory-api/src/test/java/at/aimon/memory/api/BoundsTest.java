@@ -3,6 +3,7 @@ package at.aimon.memory.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -124,5 +125,56 @@ class BoundsTest extends ApiTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"messages\":[{\"peer\":\"a\",\"content\":\"" + atTheLimit + "\"}]}"))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * The roster is bounded like the batch beside it.
+     *
+     * <p>{@code @NotEmpty} said the list could not be empty and nothing said it could not be enormous,
+     * so one body drove an unbounded number of writes: {@code addSessionPeers} calls
+     * {@code peers.getOrCreate} and {@code sessionPeers.join} per element, four statements each. Every
+     * peer added also widens the fan-out {@code ObserverResolver} computes on every later batch of
+     * messages, which ADR 0006 fixes at N + N(N−1) extraction calls.
+     */
+    @Test
+    void anOverlongRosterIsRejected() throws Exception {
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/peers").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(roster(at.aimon.memory.api.dto.Requests.MAX_SESSION_PEERS + 1)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("bad_request"));
+    }
+
+    /** Both routes take the same body, so both are bounded — {@code PUT} is where truncating would bite. */
+    @Test
+    void theRosterCapCoversTheReplaceRouteToo() throws Exception {
+        mvc.perform(put("/v1/workspaces/ws/sessions/s1/peers").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(roster(at.aimon.memory.api.dto.Requests.MAX_SESSION_PEERS + 1)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("bad_request"));
+    }
+
+    /** Inclusive, as everywhere else here: a roster exactly at the cap goes in. */
+    @Test
+    void aRosterExactlyAtTheCapIsAccepted() throws Exception {
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/peers").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(roster(at.aimon.memory.api.dto.Requests.MAX_SESSION_PEERS))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(at.aimon.memory.api.dto.Requests.MAX_SESSION_PEERS));
+    }
+
+    /** An empty roster is still a 400, which is what {@code min = 1} keeps the published schema saying. */
+    @Test
+    void anEmptyRosterIsStillRejected() throws Exception {
+        mvc.perform(post("/v1/workspaces/ws/sessions/s1/peers").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"peers\":[]}")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("bad_request"));
+    }
+
+    private static String roster(int size) {
+        StringBuilder body = new StringBuilder("{\"peers\":[");
+        for (int i = 0; i < size; i++) {
+            body.append(i == 0 ? "" : ",").append("{\"peer\":\"p").append(i).append("\"}");
+        }
+        return body.append("]}").toString();
     }
 }

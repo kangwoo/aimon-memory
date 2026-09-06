@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import at.aimon.memory.core.model.Conclusion;
@@ -37,6 +39,48 @@ import at.aimon.memory.text.Bm25;
 @Service
 public class RecallService {
 
+    /**
+     * Ceiling on the rows one signal path may fetch before fusion.
+     *
+     * <p>{@code limit * oversample} is the number that decides the cost of a recall, and until now
+     * nothing bounded it. Both factors were bounded separately — {@link RecallRequest#MAX_LIMIT} is 100
+     * and {@code WorkspaceSettingsService} rejects an {@code oversample} above 100 — and the product of
+     * two bounded numbers is ten thousand, per path, of which there are two. Twenty thousand
+     * {@code Conclusion} rows then become one {@code LinkedHashMap}, one {@code id = ANY (?)} array for
+     * the missing semantic scores, one BM25 pass in Java, one {@code linksAmong} array, and one sort —
+     * all to return at most a hundred. The javadoc on {@code Bounds} says recall is worse than linear in
+     * the limit for exactly this reason; the multiplier it names was itself unbounded in the product.
+     *
+     * <p>A thousand, because that is the fetch width this system already permits a recall path: {@code
+     * recall.entity_top_k} is validated to {@code [1, 1000]} in the same {@code parse()} call, for the
+     * same kind of number — how many rows the entity signal pulls before it contributes. The semantic
+     * and keyword paths had no equivalent. They do now, and it is the one the entity path has had all
+     * along rather than a new number invented for them.
+     *
+     * <p>Nothing that was configurable stops being configurable. The defaults are 10 × 4 = 40, twenty-five
+     * times below this; the maximum limit at the default oversample is 400; and {@code oversample: 100}
+     * with the default limit of 10 lands exactly on the ceiling and is honoured in full. The clamp
+     * engages only where the product exceeds a thousand.
+     *
+     * <p>The response cannot announce the clamp. {@code RecallResponse.candidatesConsidered} is the
+     * size of the union the two paths actually produced — that is what its own javadoc says it is — and
+     * not the width they were asked for, so it narrows when the clamp engages without reporting that it
+     * did. It is still the field to watch for whether oversampling is earning its cost, but the ceiling
+     * cannot be read off it. So the clamp says so in the log instead: silently changing a ranking and
+     * leaving no trace of it is the failure {@code WorkspaceSettingsService} already writes down one
+     * module over, where a configuration that cannot be honoured falls back and logs, "since the symptom
+     * otherwise is only that tuning had no effect". That is exactly the symptom here.
+     *
+     * <p>Clamped rather than rejected, unlike the other out-of-range configuration values, because this
+     * one can be honoured. {@code bounded()} validates a multiplier and cannot see the limit it will be
+     * multiplied by, so a product ceiling is not expressible at the write boundary; refusing
+     * {@code oversample: 100} there would refuse a setting that still does exactly what it says for
+     * every limit up to ten.
+     */
+    public static final int MAX_CANDIDATES = 1_000;
+
+    private static final Logger log = LoggerFactory.getLogger(RecallService.class);
+
     private final ConclusionStore conclusions;
     private final EntityStore entities;
     private final WorkspaceSettingsService settings;
@@ -61,7 +105,16 @@ public class RecallService {
         String analyzed = String.join(" ", queryTerms);
         float[] queryVector = embedder.embed(request.query(), EmbedPurpose.QUERY);
 
-        int oversampled = request.limit() * Math.max(1, workspaceSettings.recall().oversample());
+        int requested = request.limit() * Math.max(1, workspaceSettings.recall().oversample());
+        int oversampled = Math.min(MAX_CANDIDATES, requested);
+        if (requested > oversampled) {
+            // Debug rather than warn: the setting is legal, the request is answered, and this is a read
+            // path that would repeat the line on every query. Debug is the level the same kind of
+            // silent narrowing already uses in `EntityPipeline`, and it is reachable through
+            // AIMON_MEMORY_LOG_LEVEL, which is what an operator asking why a ranking moved has to hand.
+            log.debug("recall for {} asked {} candidates per path (limit {} x oversample {}); clamped to {}", workspace,
+                    requested, request.limit(), workspaceSettings.recall().oversample(), oversampled);
+        }
 
         Map<String, Conclusion> candidates = new LinkedHashMap<>();
         Map<String, Double> semantic = new LinkedHashMap<>();

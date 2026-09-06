@@ -22,6 +22,37 @@ public final class Requests {
      */
     public static final int MAX_CONTENT_CHARS = 32_000;
 
+    /**
+     * Ceiling on one roster request's peer list.
+     *
+     * <p>A hundred, because that is what the neighbouring list on this surface already costs: {@link
+     * CreateMessages#messages} has carried {@code @Size(max = 100)} since it was written, and {@code
+     * MessageIngestionService.MAX_BATCH} enforces the same number one layer down. The two lists have the
+     * same shape — elements in one body, each of which turns into a fixed number of writes — so they
+     * should not disagree about how many is too many. The immediate write cost is in fact the same on
+     * both: {@code PeerRepository.getOrCreate} is an insert and a read and {@code
+     * SessionPeerRepository.join} is an upsert and a window insert, so a hundred peers is four hundred
+     * statements — and ingestion pays the same four per message, calling both for each speaker in the
+     * batch. What makes a roster element the more expensive of the two is not this request but every
+     * batch after it.
+     *
+     * <p>The second reason the number is not larger is downstream and quadratic. Every peer in a session
+     * that observes the others adds a pair, and ADR 0006 fixes the cost at N + N(N−1) <em>extraction
+     * calls per batch</em> — {@code docs/guide.md} uses a ten-person room, at a hundred calls per batch,
+     * as the example worth thinking twice about, and the ADR names a fifty-person channel as the case
+     * {@code observe_others} exists to switch off. A hundred is twice the largest room those documents
+     * discuss, which is the headroom meant: the cap has to clear the rooms people really open without
+     * being the thing that bounds the fan-out, because it cannot be — see below. Five hundred in one
+     * body is not a roster anyone meant to send.
+     *
+     * <p>This bounds a <em>request</em>, not the roster: {@code POST} adds, so a caller determined to
+     * assemble a thousand-peer session can still do it a hundred at a time. That is the intended
+     * remaining hole — it costs a hundred round trips per hundred peers, which is a rate limiter's
+     * problem rather than a validation one, and closing it here would mean reading the current roster
+     * size on every add.
+     */
+    public static final int MAX_SESSION_PEERS = 100;
+
     private Requests() {
     }
 
@@ -45,8 +76,25 @@ public final class Requests {
      *     checking the name either. {@code {"peers":[{"peer":"   "}]}} answered 200 and left a peer row
      *     literally named three spaces, joined to the session and eligible to observe every message in
      *     it. A {@code null} peer was refused, but by a NOT NULL constraint reported as a 409.
+     *     <p>{@code @Size} is the second bound and a new one. {@code @NotEmpty} said the list could not be
+     *     empty and nothing said it could not be enormous, so one body drove an unbounded number of
+     *     writes through {@code HierarchyController.addSessionPeers} — four statements per element — and,
+     *     through {@code ObserverResolver}, an unbounded quadratic term on every batch of messages the
+     *     session later received. See {@link #MAX_SESSION_PEERS} for where the number comes from.
+     *     <p><b>Refused, not truncated.</b> {@code Bounds} clamps the paging and limit parameters instead
+     *     of rejecting them, and the reason it gives is that pagination tells the caller whether more
+     *     remains. A roster has no such signal, and on {@code PUT} truncating would not merely drop the
+     *     elements past the cap — {@code SessionPeerRepository.replace} closes the membership of everyone
+     *     not named, so the peers silently discarded here would be removed from the session and lose
+     *     their access to everything said in it. Clamping a list is destructive in a way clamping a
+     *     number is not. {@link CreateMessages} already answers 400 to the hundred-and-first message.
+     *     <p>{@code min = 1} is redundant against {@code @NotEmpty} for validation and load-bearing for
+     *     the published schema, the same trap {@link NewMessage} documents one field over: springdoc
+     *     derives {@code minItems} from whichever of the two it finds, and a bare {@code @Size(max = …)}
+     *     would have replaced the {@code minItems: 1} this schema already publishes with {@code 0}.
      */
-    public record AddSessionPeers(@Valid @NotEmpty List<SessionPeerSpec> peers) {
+    public record AddSessionPeers(
+            @Valid @NotEmpty @Size(min = 1, max = MAX_SESSION_PEERS) List<SessionPeerSpec> peers) {
     }
 
     public record SessionPeerSpec(@NotBlank String peer, Boolean observeMe, Boolean observeOthers) {
