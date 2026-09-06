@@ -64,7 +64,7 @@ class SchemaPromiseTest extends ApiTestBase {
     /** The published ceiling is the constant the record declares, not a number that drifted from it. */
     @Test
     void theConclusionCeilingIsPublished() {
-        assertThat(publishedBound("CreateConclusion", "content", "maxLength")).isEqualTo(Requests.MAX_CONCLUSION_CHARS);
+        assertThat(publishedBound("CreateConclusion", "content", "maxLength")).isEqualTo(Requests.MAX_CONTENT_CHARS);
         assertThat(publishedBound("CreateConclusion", "content", "minLength")).isEqualTo(1);
     }
 
@@ -76,23 +76,36 @@ class SchemaPromiseTest extends ApiTestBase {
         mvc.perform(inject(hangul(max))).andExpect(status().isOk()).andExpect(jsonPath("$.content").isNotEmpty());
     }
 
-    /**
-     * One character past the ceiling is a 400, and the length that used to reach the database is too.
-     *
-     * <p>1500 Hangul characters is the measured case this cap exists for: it answered 500
-     * {@code internal_error}, because {@code ix_concl_norm} is a btree over the normalised content and
-     * PostgreSQL refuses an index entry above 2704 bytes with SQLSTATE 54000 — which is not a
-     * {@code DataIntegrityViolationException}, so it reached {@code ApiExceptionHandler}'s catch-all
-     * and was logged at ERROR. A caller's over-long field counted as a server fault.
-     */
+    /** One character past the ceiling is a 400 rather than anything the database has to refuse. */
     @Test
     void aConclusionPastTheCeilingIsRefusedRatherThanFailingInTheDatabase() throws Exception {
         int max = publishedBound("CreateConclusion", "content", "maxLength");
 
         mvc.perform(inject(hangul(max + 1))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("bad_request"));
-        mvc.perform(inject(hangul(1_500))).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("bad_request"));
+    }
+
+    /**
+     * The length that used to reach the database and fail there is now stored.
+     *
+     * <p>1500 Hangul characters answered 500 {@code internal_error}: {@code ix_concl_norm} was a btree
+     * over {@code (workspace_name, observer, observed, content_norm)}, PostgreSQL refuses an index
+     * entry above 2704 bytes with SQLSTATE 54000, and that is not a
+     * {@code DataIntegrityViolationException} — so it reached {@code ApiExceptionHandler}'s catch-all
+     * and a caller's over-long field was logged at ERROR as a server fault. Then it answered 400,
+     * because {@code @Size(max = 800)} took the field out of reach of the failure without closing the
+     * route. {@code V13__conclusion_norm_hash_index.sql} indexes {@code md5(content_norm)}, so the
+     * entry no longer carries the content and this is a 200 with the row stored.
+     *
+     * <p>The whole text is compared rather than only the status, and that is a read of the stored row:
+     * {@code ConclusionController.create} answers from {@code conclusions.find} rather than from the
+     * request, so the body is what came back out of the database.
+     */
+    @Test
+    void aConclusionLongerThanABtreeEntryIsStoredRatherThanFailingInTheDatabase() throws Exception {
+        String content = hangul(1_500);
+
+        mvc.perform(inject(content)).andExpect(status().isOk()).andExpect(jsonPath("$.content").value(content));
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder inject(String content) {
@@ -103,8 +116,9 @@ class SchemaPromiseTest extends ApiTestBase {
     }
 
     /**
-     * {@code n} Hangul syllables, which is what the cap is sized for: three UTF-8 bytes each, against
-     * one for the Latin the same character count would cost.
+     * {@code n} Hangul syllables: three UTF-8 bytes each, against one for the Latin the same character
+     * count would cost. The byte width is the point — every boundary this class exercises is a byte
+     * boundary underneath, and Hangul is what this system's corpus is written in.
      */
     private static String hangul(int n) {
         StringBuilder sb = new StringBuilder(n);

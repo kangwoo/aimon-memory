@@ -135,6 +135,42 @@ class DeriverPipelineTest extends MemoryTestBase {
         assertThat(entities.entitiesFor(WORKSPACE, live.get(0).id())).hasSize(1);
     }
 
+    /**
+     * A long conclusion in the middle of a batch does not take the rest of the batch with it.
+     *
+     * <p>The deriver and the dreamer are where most conclusions come from, and neither passes a DTO, so
+     * no constraint on {@code CreateConclusion.content} was ever in this path. What was in it was
+     * {@code ix_concl_norm}: a btree over the normalised content refused an entry above 2704 bytes with
+     * SQLSTATE 54000, and {@link ConclusionWriter#write} is not transactional — so item 2 threw, item 1
+     * stayed committed, item 3 was never written, and the work unit went back to the queue to be tried
+     * again. {@code V13__conclusion_norm_hash_index.sql} removes the content from the entry.
+     *
+     * <p>The reinforcement counts are asserted because the earlier items being reinforced once per
+     * retry is what made this quietly expensive — {@code times_derived} is a ranking signal. To be
+     * exact about what this pins and what it does not: the retry lives above {@code write()}, in the
+     * work unit's {@code max-attempts}, which a call that succeeds never enters. So this fixes the
+     * cause, and a regression shows up here as the exception rather than as a count of 5.
+     */
+    @Test
+    void aLongConclusionDoesNotStopTheRestOfItsBatch() {
+        PairKey pair = seedPair("alice", "alice");
+        List<Message> batch = seedMessages("s1", "alice", "I work at a bank in Seoul.");
+        String longContent = hangul(900);
+
+        var result = deriverReturning("""
+                {"conclusions":[
+                  {"content":"alice works at a bank in seoul","entities":[]},
+                  {"content":"%s","entities":[]},
+                  {"content":"alice prefers morning meetings","entities":[]}]}
+                """.formatted(longContent)).deriveAndWrite(pair, "s1", batch);
+
+        assertThat(result.inserted()).isEqualTo(3);
+        var stored = conclusions.list(pair, at.aimon.memory.core.filter.Filter.ALL, 0, 10).items();
+        assertThat(stored).extracting(c -> c.content()).containsExactlyInAnyOrder("alice works at a bank in seoul",
+                longContent, "alice prefers morning meetings");
+        assertThat(stored).allSatisfy(c -> assertThat(c.timesDerived()).isEqualTo(1));
+    }
+
     @Test
     void anEmptyExtractionWritesNothing() {
         PairKey pair = seedPair("alice", "alice");
@@ -173,5 +209,14 @@ class DeriverPipelineTest extends MemoryTestBase {
 
         String bankId = stored.stream().filter(c -> c.content().contains("bank")).findFirst().orElseThrow().id();
         assertThat(entities.entitiesFor(WORKSPACE, bankId)).hasSize(2);
+    }
+
+    /** {@code n} Hangul syllables, three UTF-8 bytes each — the width the old index entry was measured in. */
+    private static String hangul(int n) {
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            sb.append((char) (0xAC00 + (i * 37 % 11172)));
+        }
+        return sb.toString();
     }
 }

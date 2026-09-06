@@ -146,6 +146,39 @@ first release goes out.
   round trips to one should widen the gap wherever there is network latency, but that was not
   measured. What guards the regression is not a duration: `MessageBatchInsertTest` counts the
   statements.
+- **`CreateConclusion.content`'s published ceiling moves from 800 to 32000 —
+  `Requests.MAX_CONCLUSION_CHARS` is gone and the field takes `MAX_CONTENT_CHARS`, the same constant
+  `NewMessage.content` carries.** 800 was not a number about what the field means; it was arithmetic on
+  a btree entry — 2704 bytes, less whatever the three unbounded name columns took, divided by the three
+  UTF-8 bytes a Hangul syllable costs. After `V13` in `Fixed` above that arithmetic describes nothing,
+  and a number nobody can defend is a number nobody can later move. What survives is the bound this
+  surface already wrote down one field over: `OpenAiEmbedder` truncates at 8191 tokens, roughly 32000
+  characters, past which text is stored where semantic recall can never see it — and that applies to a
+  conclusion *more* strongly than to a message, because a conclusion is what recall returns rather than
+  what it is derived from.
+  **No request starts being refused.** It runs the other way: a body that was answered 400 is now
+  answered 200 and stored. The `800` entry from 06f1760 stays where it is — that is history, and this
+  is what replaced it. One line of `docs/openapi.json` changes:
+  `CreateConclusion.content.maxLength` 800 → 32000, with `minLength: 1` untouched.
+  **Three costs, stated rather than discovered.** First, a 32000-character conclusion in a hundred-item
+  recall makes a large response — the same exposure the message field on this API already accepts, with
+  `limit ≤ 100` and 06f1760's Tier 1 candidate ceiling as the bounds above it.
+  Second, filters on `content_norm` lose their incidental index support. The field stays in
+  `FilterSchema.CONCLUSIONS`, so **no new 422**. Six of `FilterOp`'s twelve operators lose anything:
+  `eq`, `in`, `gt`, `gte`, `lt` and `lte` now scan within the pair scope. The other six lose nothing,
+  because `ne` compiles to `IS DISTINCT FROM`, `nin` to `(col IS NULL OR col NOT IN (…))`, `contains`
+  and `icontains` to `position(...)`, `starts_with` to `starts_with(...)` and `exists` to `IS NULL` /
+  `IS NOT NULL` — none of which a plain btree ever served. The neighbouring column `content` has never
+  had an index at all, and no gate ever asserted one for `content_norm`: the single query
+  `IndexUsageTest` holds against `ix_concl_norm` is dedup stage 2, rewritten as the expression and
+  still reaching it.
+  Third, a long conclusion gives the keyword path more to do. Before this change a row holding more than
+  ~2700 bytes of `content_norm` **could not exist**, because the index refused it; now one can, up to
+  32000 characters from the API and unbounded through the deriver and the dreamer.
+  `ConclusionRepository.keyword` re-tokenizes each candidate's `content_analyzed` in Java to score BM25,
+  and `corpusStats` runs `avg(array_length(string_to_array(content_analyzed, ' '), 1))` over every live
+  row in the pair. Both grow with the length of a conclusion. Neither is a failure mode and the
+  candidate count is still bounded; no number is quoted here because none was measured.
 
 ### Fixed
 
@@ -316,7 +349,11 @@ first release goes out.
   **No request starts being refused.** One line of `docs/openapi.json` changes, and a generated client
   stops having a reason to send the empty array that has always come back 400.
 - **An injected conclusion's text is now bounded — `Requests.MAX_CONCLUSION_CHARS`, 800 characters,
-  and more is a 400.** `CreateConclusion.content` had a floor (`@NotBlank`) and no ceiling. It is not
+  and more is a 400.**
+  *(Superseded within this same `Unreleased` — the index moved onto `md5(content_norm)`, the btree
+  limit that forced 800 is gone, and the cap is 32000. What follows is kept as the record of where
+  that number came from.)*
+  `CreateConclusion.content` had a floor (`@NotBlank`) and no ceiling. It is not
   the 32000 of `NewMessage.content`, because the database stops this row far earlier than the embedder
   would. `ix_concl_norm` is a **btree** over `(workspace_name, observer, observed, content_norm)`, and
   a btree entry cannot exceed 2704 bytes on an 8 KB page. Messages carry no such index —
@@ -404,6 +441,52 @@ first release goes out.
   could never return, so the ranking of such a query can move. The golden fixtures and the ranking
   baseline did not move and had no reason to — both are indexed with the stub analyzer, which splits
   on every one of these characters, and neither corpus contains them.
+- **A long conclusion answered `internal_error`. The index is what was wrong —
+  `V13__conclusion_norm_hash_index.sql`.** `ix_concl_norm` was a **btree** over
+  `(workspace_name, observer, observed, content_norm)`, and a btree entry cannot exceed 2704 bytes on
+  an 8 KB page, so **the length of the text decided whether the row could be stored at all.**
+  PostgreSQL refuses it with `index row size 2728 exceeds btree version 4 maximum 2704`,
+  SQLSTATE 54000, which is not a `DataIntegrityViolationException` — Spring translates class 54 to
+  `DataAccessResourceFailureException` — so it fell past `ApiExceptionHandler`'s constraint handler to
+  the catch-all, answered `internal_error` and was logged at ERROR. The index now indexes
+  `md5(content_norm)`: md5 is 32 characters whatever the input, so the entry width comes off the
+  content, and the exact equality stays in the query —
+  `ConclusionRepository.NORM_LOOKUP` is `md5(c.content_norm) = md5(?) AND c.content_norm = ?`. An md5
+  collision therefore costs one heap tuple fetched and discarded rather than a false REINFORCE.
+  **The boundary was a range, not a number**, because `index_form_tuple` compresses an attribute before
+  it measures the entry, so every figure here is measured on text with no repetition in it. Before: a
+  conclusion of 890 Hangul characters answered 200 and 900 answered **500**; 2650 Latin characters
+  answered 200 and 2680 answered **500** — that is the state *before* `06f1760`. Immediately after
+  `06f1760` put the 800-character cap in, **all four answered 400**, because the validator replied
+  before the database did. **All four are now 200 and stored.** Reverting this migration
+  alone puts 900 and 2680 back to SQLSTATE 54000 — `ConclusionLengthTest` pins that, and the mutation
+  was run.
+- **The same failure was worse through the deriver and the dreamer, and closes with it.** Those two
+  write most conclusions and neither passes a DTO, so no constraint on `CreateConclusion.content` was
+  ever in that path. `ConclusionWriter.write` is not transactional, so one long item in a batch failed
+  with the items before it already committed and the items after it never written — and the work unit
+  was retried up to `max-attempts: 5`, **reinforcing each earlier item once per attempt.**
+  `times_derived` reaches ranking through `ReinforcementSignal`, so the order was quietly distorted
+  before the unit was quarantined. `DeriverPipelineTest` pins a batch of three — short, 900 Hangul,
+  short — inserting all three. Both writers call the one method, `ConclusionWriter.write`, but the
+  dreamer's shape is a sessionless deductive conclusion, which takes the other branch of
+  `dedupScopeSql`; that a 900-character deductive conclusion stores and is still caught at stage 2 is
+  pinned separately, in `ConclusionLengthTest`.
+- **What the two entries above do not close.** A conclusion's **length** can no longer break storage at
+  any length this API accepts — which is neither "no conclusion fails to store" nor "no length ever
+  fails". Two bounds are left standing on purpose. The three name columns are still unbounded,
+  and `ix_concl_pair`, `ix_concl_hash`, `ux_concl_scope_hash` and the `collections` primary key are all
+  btrees over them. Measured with incompressible names and a 100-character conclusion: `observer` and
+  `observed` of 1300 bytes each (2602 bytes of names) store, and 1350 bytes each fail with the same
+  54000 — this time on `collections_pkey`, raised when the pair is created, before a conclusion is
+  written at all. `ix_concl_fts` also keeps a ceiling of its own, 1048575 bytes of tsvector. What
+  reaches it is `content_analyzed` rather than `content`, and **how much of it fits is decided by how
+  many of its lexemes are distinct rather than by its byte width**, because a tsvector folds repeated
+  lexemes and carries positions instead. Measured: 809999 bytes of distinct 8-character tokens fails at
+  1085126 bytes, while 2099992 bytes of the repeating bigrams `BigramTextAnalyzer` actually emits over a
+  long Hangul run index without complaint. 32000 Hangul characters analyze to 223992 bytes, inside the
+  limit on any corpus, so **no body this API accepts** reaches it — though the deriver and the dreamer
+  do not pass through that cap.
 
 ### Security
 

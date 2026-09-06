@@ -1,0 +1,71 @@
+-- The length of a conclusion's text decided whether the row could be stored at all.
+--
+-- ix_concl_norm was a btree over (workspace_name, observer, observed, content_norm), and a btree entry
+-- cannot exceed 2704 bytes on an 8 KB page. So a long conclusion was refused with SQLSTATE 54000,
+-- which Spring translates to DataAccessResourceFailureException rather than a constraint violation --
+-- through the API that meant internal_error, and through ConclusionWriter (which is not transactional,
+-- and which the deriver and the dreamer reach with no DTO in the way) it meant a half-written batch and
+-- a retry that reinforced the items before the failure. Both CHANGELOGs tell that story in full.
+--
+-- The boundary was a range rather than a number, because index_form_tuple compresses an attribute
+-- before it measures the entry. Measured on text with no repetition for the compressor to find, which
+-- is the only side of the range anything can be reasoned from: 890 Hangul characters stored and 900 did
+-- not; 2650 Latin characters stored and 2680 did not.
+--
+-- The fix is to index a fixed-width hash of the normalised text instead of the text. md5() is 32
+-- characters whatever the input, so the entry stops depending on the content at all: it is the three
+-- name columns plus 36 bytes plus tuple overhead.
+--
+-- The exact equality stays in the query -- ConclusionRepository.NORM_LOOKUP is
+-- `md5(c.content_norm) = md5(?) AND c.content_norm = ?`. That is what makes the hash's strength
+-- irrelevant here: the index narrows and the equality decides, so two strings sharing an md5 cost one
+-- heap tuple fetched and discarded rather than a false REINFORCE. Without the recheck the answer would
+-- be that a fact is silently swallowed into an unrelated row, and md5 collisions are constructible by
+-- whoever controls the content. md5(?) rather than a hash computed in Java, for the reason
+-- Normalizer.SQL_EXPRESSION and NormalisationParityTest already exist: one rule, on both sides.
+--
+-- A prefix -- left(content_norm, 100) -- was the other candidate. It keeps btree ordering, but its
+-- selectivity depends on the corpus: a workspace whose conclusions share an opening clause degrades to
+-- a pair scan with nothing to say that it has. It needs the same recheck anyway.
+--
+-- On a PostgreSQL built against an OpenSSL in FIPS mode md5() is refused and this CREATE INDEX fails at
+-- deploy time. The drop-in is sha256(content_norm::bytea), here and in NORM_LOOKUP -- same shape, same
+-- recheck. Not the default because with the recheck it buys no correctness and text::bytea is an
+-- encoding-dependent cast that reads like a no-op. sha256(convert_to(content_norm, 'UTF8')), the form
+-- most people reach for first, cannot be indexed at all: convert_to is provolatile = 's', so it fails
+-- with "functions in index expression must be marked IMMUTABLE".
+--
+-- No backfill. The old index is its own proof that no stored row is too wide for the new one: every
+-- live row had to pass the old, wider entry to be inserted, and a soft-deleted row was live once and
+-- re-enters the same partial index on restore(). Where the new entry is larger -- content under about
+-- 32 bytes -- it is still smaller than the ix_concl_hash entry the same row already carries, 36 bytes
+-- of md5 against 68 of CHAR(64). If that reasoning were wrong this CREATE INDEX fails and Flyway marks
+-- the migration failed, which is a stopped deploy rather than a silent one.
+--
+-- Plain DROP and CREATE, following V7 rather than CONCURRENTLY: Flyway runs a migration in a
+-- transaction and CREATE INDEX CONCURRENTLY cannot be in one. The cost, when there is a deployment to
+-- pay it, is an ACCESS EXCLUSIVE lock on conclusions for the duration of the build; there is no
+-- released version and no live table yet, which is what licenses it here.
+--
+-- What this does not promise: not that any conclusion stores, only that its *length* is no longer what
+-- stops it, at any length this API accepts. Two bounds are left standing, both measured.
+--
+-- The three name columns are still unbounded and still sit in ix_concl_pair, ix_concl_hash,
+-- ux_concl_scope_hash and the collections primary key. Measured with incompressible names,
+-- workspace_name `ws` and a 100-character conclusion: observer and observed of 1300 bytes each
+-- (2602 bytes of names) store, and 1350 bytes each fail with `index row size 2728 exceeds btree
+-- version 4 maximum 2704 for index "collections_pkey"` -- raised when the pair is created, before a
+-- conclusion is written at all.
+--
+-- ix_concl_fts keeps a ceiling of its own: a tsvector cannot exceed 1048575 bytes. How much
+-- content_analyzed that is depends on the corpus rather than on its byte width, because a tsvector
+-- dedups lexemes and stores positions -- measured, 809999 bytes of distinct 8-character tokens fails at
+-- 1085126 bytes, while 2099992 bytes of the repeating bigrams BigramTextAnalyzer actually emits over a
+-- long Hangul run indexes without complaint. At the ceiling CreateConclusion.content publishes, 32000
+-- Hangul characters analyze to 223992 bytes, which is inside the limit on any corpus -- but the deriver
+-- and the dreamer do not pass through that record.
+
+DROP INDEX ix_concl_norm;
+CREATE INDEX ix_concl_norm ON conclusions
+    (workspace_name, observer, observed, md5(content_norm))
+    WHERE deleted_at IS NULL;

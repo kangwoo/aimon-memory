@@ -123,6 +123,35 @@
   **이 숫자는 loopback 을 설명하지 배포를 설명하지 않는다.** 왕복이 100번에서 1번이 되는 변화라
   네트워크 지연이 있는 곳에서는 차이가 더 커지지만, 그건 측정한 바 없다. 회귀를 막는 것은 시간이 아니라
   `MessageBatchInsertTest` 가 세는 **문장 수**다.
+- **`CreateConclusion.content` 의 발행 상한이 800 에서 32000 으로 올라간다 —
+  `Requests.MAX_CONCLUSION_CHARS` 는 사라지고 `NewMessage.content` 와 같은 `MAX_CONTENT_CHARS` 를 쓴다.**
+  800 은 필드의 뜻에서 나온 수가 아니라 btree 엔트리 위의 산술이었다. 2704바이트에서 상한 없는 이름
+  세 칸의 몫을 빼고 한글 한 글자의 UTF-8 3바이트로 나눈 값. 위 `수정` 의 `V13` 이후 그 산술은 아무것도
+  기술하지 않고, 근거를 댈 수 없는 숫자는 나중에 아무도 못 움직인다. 남는 근거는 이 표면이 옆 필드에
+  이미 적어 둔 것이다 — `OpenAiEmbedder` 가 8191 토큰(대략 32000자)에서 자르므로 그 너머의 텍스트는
+  semantic recall 이 영영 볼 수 없는 자리에 저장된다. 그 근거는 결론에 **더** 강하게 적용된다. 결론은
+  도출의 재료가 아니라 recall 이 돌려주는 것이기 때문이다.
+  **새로 거절되는 요청은 없다.** 방향이 반대다 — 400 으로 거절되던 본문이 이제 200 으로 저장된다.
+  06f1760 의 `800` 항목은 그대로 둔다. 그건 히스토리이고, 이 항목은 그것을 무엇이 대체했는지다.
+  `docs/openapi.json` 은 한 줄 바뀐다: `CreateConclusion.content.maxLength` 800 → 32000.
+  `minLength: 1` 은 움직이지 않는다.
+  **대가 셋을 적어 둔다.** 하나, 32000자짜리 결론이 100건짜리 recall 에 실리면 응답이 커진다. 같은 API 의
+  메시지 쪽이 이미 받아들이고 있는 노출이고, `limit ≤ 100` 과 06f1760 의 Tier 1 후보 천장이 그 위의
+  경계다.
+  둘, `content_norm` 필터가 인덱스 지원을 잃는다. 필드는 `FilterSchema.CONCLUSIONS` 에 그대로 있으므로
+  **422 가 새로 생기지는 않는다.** `FilterOp` 의 열두 개 중 실제로 잃는 것은 여섯이다 — `eq` · `in` ·
+  `gt` · `gte` · `lt` · `lte` 가 이제 쌍 스코프 안을 스캔한다. 나머지 여섯은 잃을 것이 없다.
+  `ne` 는 `IS DISTINCT FROM`, `nin` 은 `(col IS NULL OR col NOT IN (…))`, `contains` 와 `icontains` 는
+  `position(...)`, `starts_with` 는 `starts_with(...)`, `exists` 는 `IS NULL` / `IS NOT NULL` 로
+  컴파일되고, 그 어느 것도 맨 btree 가 답한 적이 없다. 옆 컬럼 `content` 에는 인덱스가 처음부터 없었고,
+  `content_norm` 이 인덱스를 탄다고 약속한 게이트도 없었다 — `IndexUsageTest` 가 `ix_concl_norm` 에
+  걸어 둔 단 하나의 질의는 중복 제거 2단계이고, 그건 표현식으로 다시 쓰여 그대로 인덱스를 탄다.
+  셋, 긴 결론은 키워드 경로에 더 많은 일을 준다. 예전에는 인덱스가 거절했으므로 `content_norm` 이
+  2700바이트를 넘는 행이 **존재할 수 없었다.** 이제는 API 로 32000자까지, deriver·dreamer 를 통해서는
+  상한 없이 존재할 수 있다. `ConclusionRepository.keyword` 는 후보마다 `content_analyzed` 를 Java 에서
+  다시 토크나이즈해 BM25 를 매기고, `corpusStats` 는 쌍의 살아 있는 모든 행 위에서
+  `avg(array_length(string_to_array(content_analyzed, ' '), 1))` 를 돌린다. 둘 다 결론 길이를 따라
+  커진다. 실패 모드는 아니고 후보 수는 여전히 묶여 있다. 재 보지 않았으므로 숫자는 적지 않는다.
 
 ### 수정
 
@@ -269,6 +298,8 @@
   **새로 거절되는 요청은 없다.** 바뀌는 것은 `docs/openapi.json` 한 줄뿐이고, 그 한 줄을 믿고 빈 배열을
   보냈다가 400 을 받던 생성 클라이언트가 그럴 이유가 없어진다.
 - **주입 결론의 길이에 상한이 생겼다 — `Requests.MAX_CONCLUSION_CHARS`, 800자, 넘으면 400.**
+  *(같은 `Unreleased` 안에서 대체됨 — 인덱스가 `md5(content_norm)` 위로 옮겨가 800 을 강요하던
+  btree 한계가 사라졌고, 상한은 32000 이다. 아래 서술은 그 수가 어떻게 나왔는지의 기록으로 남긴다.)*
   `CreateConclusion.content` 에는 바닥(`@NotBlank`)만 있고 천장이 없었다. `NewMessage.content` 와 같은
   32000 이 아닌 이유는 임베더보다 데이터베이스가 훨씬 먼저 막기 때문이다. `ix_concl_norm` 은
   `(workspace_name, observer, observed, content_norm)` 위의 **btree** 이고 btree 엔트리는 8KB 페이지에서
@@ -344,6 +375,45 @@
   소유격이나 자릿수 콤마가 든 질의는 예전에 키워드 경로가 전혀 내놓지 못하던 행을 이제 후보로 올린다.
   같은 질의의 순위가 달라질 수 있다. 골든 픽스처와 랭킹 기준선은 움직이지 않았고 그럴 이유도 없다 —
   두 픽스처 모두 구두점을 전부 쪼개는 스텁 분석기로 색인되고, 코퍼스에도 이 세 문자가 없다.
+- **긴 결론이 `internal_error` 로 답하던 문제. 인덱스를 고쳤다 — `V13__conclusion_norm_hash_index.sql`.**
+  `ix_concl_norm` 은 `(workspace_name, observer, observed, content_norm)` 위의 **btree** 였고 btree
+  엔트리는 8KB 페이지에서 2704바이트를 넘을 수 없다. 그래서 **본문의 길이가 그 행을 저장할 수 있는지를
+  결정했다.** PostgreSQL 은 `index row size 2728 exceeds btree version 4 maximum 2704`,
+  SQLSTATE 54000 으로 거절하고, 그것은 `DataIntegrityViolationException` 이 아니라(class 54 는
+  `DataAccessResourceFailureException` 으로 번역된다) `ApiExceptionHandler` 의 catch-all 로 떨어져
+  `internal_error` 로 답하고 ERROR 로 로깅됐다. 이제 인덱스는 `md5(content_norm)` 을 색인한다. md5 는
+  입력이 무엇이든 32자라 엔트리 폭이 본문에서 떨어져 나오고, 정확한 등호는 질의에 남는다 —
+  `ConclusionRepository.NORM_LOOKUP` 이 `md5(c.content_norm) = md5(?) AND c.content_norm = ?` 이다.
+  그래서 md5 충돌이 뜻하는 것은 힙 튜플 하나를 읽고 버리는 것뿐이고, 잘못된 REINFORCE 가 아니다.
+  **경계는 하나의 숫자가 아니라 구간이었다** — `index_form_tuple` 이 엔트리를 재기 전에 속성을 압축하기
+  때문이다. 그래서 아래 숫자는 전부 반복이 없는 텍스트로 잰 것이다. `06f1760` **이전에는** 한글 890자가
+  200 이고 900자가 **500**, 라틴 2650자가 200 이고 2680자가 **500** 이었다. `06f1760` 의 800자 상한이
+  들어간 **직후에는 넷 다 400** 이었다 — 검증기가 데이터베이스보다 먼저 답했기 때문이다.
+  **이제 넷 다 200 이고 저장된다.**
+  이 마이그레이션만 되돌리면 900자와 2680자는 다시 54000 으로 깨진다 — `ConclusionLengthTest` 가
+  고정하고, 뮤테이션으로 확인했다.
+- **같은 실패가 deriver·dreamer 쪽에서 더 나빴고, 그쪽도 함께 닫힌다.** 결론의 대부분을 그 둘이 쓰는데
+  둘 다 DTO 를 지나지 않으므로 `CreateConclusion.content` 의 어떤 제약도 이 경로에 닿은 적이 없다.
+  `ConclusionWriter.write` 는 비트랜잭션이라, 배치 가운데 항목 하나가 길면 앞 항목은 커밋된 채로 실패하고
+  뒤 항목은 아예 쓰이지 않았다. 그리고 작업 단위가 `max-attempts: 5` 만큼 재시도되면서 **매 시도마다 앞
+  항목을 REINFORCE** 했다 — `times_derived` 는 `ReinforcementSignal` 을 지나는 랭킹 신호라, 격리되기
+  전에 순위가 조용히 왜곡됐다. 짧은 것 / 한글 900자 / 짧은 것 세 항목 배치가 세 건 모두 INSERT 되는 것을
+  `DeriverPipelineTest` 가 고정한다. 두 writer 가 부르는 것은 `ConclusionWriter.write` 하나로 같지만
+  dreamer 가 쓰는 모양은 세션 없는 deductive 라 `dedupScopeSql` 의 다른 가지를 타므로, 900자 deductive
+  결론이 저장되고 2단계에서 다시 잡히는 것은 `ConclusionLengthTest` 가 따로 고정한다.
+- **위 두 항목이 닫지 않는 것.** 결론의 **길이**가 저장을 깨지 못하게 된 것은 **이 API 가 받는 길이
+  안에서**다. "어떤 결론도 저장에 실패하지 않는다"도 아니고 "어떤 길이도 실패하지 않는다"도 아니다.
+  남겨 둔 경계가 둘 있다. 이름 세 칸에는 여전히 상한이 없고 `ix_concl_pair`, `ix_concl_hash`,
+  `ux_concl_scope_hash`, `collections` 기본키가 전부 그 이름들 위의 btree 다. 압축되지 않는 이름과
+  100자 결론으로 재면 observer·observed 각 1300바이트(이름 합계 2602바이트)는 저장되고, 각 1350바이트는
+  같은 54000 으로 깨진다 — 이번에는 `collections_pkey` 에서, 결론을 쓰기도 전에 쌍을 만드는 자리에서다.
+  `ix_concl_fts` 에도 tsvector 상한 1048575바이트가 남아 있다. 거기 들어가는 것은 `content` 가 아니라
+  `content_analyzed` 인데, **분석된 텍스트가 몇 바이트인지가 아니라 그 안의 어휘소가 얼마나 서로 다른지가
+  결정한다** — tsvector 는 어휘소를 합치고 위치를 대신 싣기 때문이다. 측정하면 서로 다른 8자 토큰
+  809999바이트는 1085126바이트로 깨지지만, `BigramTextAnalyzer` 가 긴 한글에 실제로 내놓는 반복되는
+  bigram 은 2099992바이트여도 그대로 색인된다. 한글 32000자는 분석하면 223992바이트라 어느 코퍼스에서도
+  상한 안쪽이고, 그래서 **이 API 가 받는 어떤 본문도** 거기까지 가지 못한다 — 다만 deriver 와 dreamer 는
+  그 상한을 지나지 않는다.
 
 ### 보안
 

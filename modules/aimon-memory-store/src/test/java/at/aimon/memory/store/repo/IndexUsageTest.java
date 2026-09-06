@@ -87,6 +87,18 @@ class IndexUsageTest extends StoreTestBase {
      * NULL}, and Postgres will only use it if the query's own predicate implies that — which it does
      * today because the live-row filter names the column outright. Rewriting that filter as anything
      * cleverer would silently drop these.
+     *
+     * <p>The {@code content_norm} half is the case this class's header calls out by name: since V13
+     * {@code ix_concl_norm} is an <em>expression</em> index, on {@code md5(content_norm)}, so the
+     * predicate has to be written the way the index is or it is not an option at all. Measured with the
+     * {@code md5} dropped, the plan falls back to a bitmap scan of {@code ix_concl_pair} — a stage that
+     * silently became a pair scan, with no error anywhere to say so.
+     *
+     * <p>EXPLAINed from {@link ConclusionRepository#NORM_LOOKUP} rather than from a copy of it, for the
+     * reason {@code entityBoostReachesThePairScopedEdgeIndex} was rewritten: an assertion that passes
+     * for a query no caller issues is the one thing an index-usage gate must not do. The second half of
+     * that constant is asserted too — the exact equality is what makes an md5 collision cost a heap
+     * tuple instead of a false REINFORCE, and deleting it would leave this plan otherwise unchanged.
      */
     @Test
     void dedupLookupsReachTheirPartialIndexes() {
@@ -94,9 +106,12 @@ class IndexUsageTest extends StoreTestBase {
                 "SELECT c.id FROM conclusions c WHERE " + PAIR + " AND c.deleted_at IS NULL AND c.content_hash = ?",
                 WORKSPACE, "alice", "alice", "0".repeat(64))).contains("ix_concl_hash");
 
-        assertThat(Explain.plan(
-                "SELECT c.id FROM conclusions c WHERE " + PAIR + " AND c.deleted_at IS NULL AND c.content_norm = ?",
-                WORKSPACE, "alice", "alice", "anything")).contains("ix_concl_norm");
+        String plan = Explain.plan("SELECT c.id FROM conclusions c WHERE " + PAIR + " AND c.deleted_at IS NULL AND "
+                + ConclusionRepository.NORM_LOOKUP, WORKSPACE, "alice", "alice", "anything", "anything");
+        assertThat(plan).contains("ix_concl_norm");
+        // The index condition renders `md5(content_norm) = md5(...)`, which does not contain this;
+        // only the recheck's own Filter line does.
+        assertThat(plan).contains("content_norm =");
     }
 
     @Test
