@@ -336,6 +336,23 @@ first release goes out.
   `verifyContractTestClasspath` and `verifyContractTestRan`. Publishing the testkit to Central's
   snapshots afterwards made the tier run everywhere, CI included (see Changed above); the skip
   remains for the case where the coordinate stops resolving.
+- **A query term carrying an apostrophe or a thousands separator produced no keyword candidates at
+  all.** Lucene's standard tokenizer emits `alice's` and `50,000` as single tokens, so both land in
+  `content_analyzed` and in the query terms alike — but `TsQuery` stripped the punctuation and sent
+  `alices` and `50000`, neither of which matches the document it was analysed from. Measured on
+  Postgres 16 over a three-row corpus: 0 rows where the unstripped form finds 2, for both. That is
+  every English possessive, every contraction and every grouped number. Both characters are kept
+  now. The comma is simply allowlisted, because it is not a tsquery operator in any position; the
+  apostrophe is kept **only between two alphanumerics**, because a term starting with one opens a
+  quoted lexeme that never closes and takes the whole statement down with a syntax error. A
+  word-internal `:` is still stripped — that one is a real operator no position rescues — so
+  `note:draft` still fails to find its own document.
+
+  **No previously rejected request is now accepted, and no error code changed.** What changes is
+  retrieval: a query holding a possessive or a grouped number now surfaces rows the keyword path
+  could never return, so the ranking of such a query can move. The golden fixtures and the ranking
+  baseline did not move and had no reason to — both are indexed with the stub analyzer, which splits
+  on every one of these characters, and neither corpus contains them.
 
 ### Security
 
