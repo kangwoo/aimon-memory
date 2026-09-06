@@ -23,10 +23,92 @@ public final class Requests {
     public static final int MAX_CONTENT_CHARS = 32_000;
 
     /**
+     * Ceiling on one injected conclusion's text, in characters.
+     *
+     * <p>Not {@link #MAX_CONTENT_CHARS}, and the gap between the two is the finding. The argument
+     * behind the message cap — {@code OpenAiEmbedder} truncates at 8191 tokens, so text past roughly
+     * 32k characters is stored where semantic recall can never see it — applies to a conclusion
+     * <em>more</em> strongly, because a conclusion is what recall returns rather than what it is
+     * derived from. It simply never binds. Something else refuses the row an order of magnitude
+     * earlier.
+     *
+     * <p>{@code ix_concl_norm} is a btree over {@code (workspace_name, observer, observed,
+     * content_norm)}, and a btree entry cannot exceed 2704 bytes on an 8 KB page. Messages carry no
+     * such index — {@code ix_message_fts} and {@code ix_message_trgm} are both GIN, which indexes
+     * terms rather than the whole value — which is why 32k is reachable there and not here. Measured
+     * against the real schema through the API, scope columns {@code ws/alice/alice}, on text a
+     * compressor cannot fold — see below for why that qualifier is load-bearing:
+     *
+     * <pre>
+     * conclusion,   890 Hangul characters  ->  200
+     * conclusion,   900 Hangul characters  ->  500 internal_error
+     * conclusion,  2650 Latin characters   ->  200
+     * conclusion,  2680 Latin characters   ->  500 internal_error
+     * message,    32000 Hangul characters  ->  200
+     * </pre>
+     *
+     * <p>That 500 is the failure this file has been closing one route at a time. PostgreSQL raises
+     * {@code index row size 2728 exceeds btree version 4 maximum 2704}, SQLSTATE 54000. It is not a
+     * {@code DataIntegrityViolationException} — Spring translates class 54 to
+     * {@code DataAccessResourceFailureException} — so it falls past {@code ApiExceptionHandler}'s
+     * constraint handler to the catch-all: an over-long field in a client's body, answered as
+     * {@code internal_error} and logged at ERROR into the metric an outage is supposed to show up in.
+     *
+     * <p><b>The boundary is a range, not a number.</b> {@code index_form_tuple} compresses an attribute
+     * before it measures the entry, so how much text fits depends on how well that text compresses: a
+     * conclusion of 32000 identical syllables stores without complaint. Every number here and below is
+     * measured on text with no repetition for a compressor to find, because that is the only side of the
+     * range a cap can be set from.
+     *
+     * <p>800 rather than either measured number, because one field cannot hold two limits and the real
+     * limit is on bytes. A cap set where Latin stops would refuse nothing in the language this
+     * system's corpus, prompts and specification are actually written in, so the number is sized for
+     * the three bytes a Hangul or CJK character costs in UTF-8. Dividing 2704 by three gives 901 and is
+     * the wrong arithmetic: the entry also carries {@code workspace_name}, {@code observer} and
+     * {@code observed}, which nothing bounds. Measured, worst case — content with no spaces in it to
+     * dilute the three-byte characters and no repetition for the compressor to find, against the three
+     * scope columns at four sizes:
+     *
+     * <pre>
+     * characters   names 13 B   96 B   192 B   255 B
+     *        800       fits     fits    fits    fits
+     *        825       fits     fits    fits    REFUSED
+     *        850       fits     fits    REFUSED
+     *        875       fits    REFUSED
+     *        900     REFUSED
+     * </pre>
+     *
+     * <p>800 is where the cap holds against a quarter kilobyte of names, which is already more than a
+     * peer name has any business being. It is generous for what it bounds: {@code Prompts.deriver} asks for
+     * "one conclusion per distinct fact", each stated as "a complete sentence that stands on its own",
+     * and the forty hand-written conclusions in {@code test-fixtures/eval/ranking.json} run 13 to 33
+     * characters.
+     *
+     * <p><b>Three bytes per character is the worst case</b>, which is worth stating because the obvious
+     * objection is wrong. {@code @Size} counts UTF-16 code units, and a supplementary-plane character is
+     * two of them for four UTF-8 bytes — two bytes per unit counted, <em>less</em> than the three a
+     * Hangul syllable costs. Measured: 800 counted characters of astral text is 1600 bytes and stores.
+     * "800 emoji" is 1600 counted characters and never reaches the database at all, because the
+     * validator answers 400 first. So the cap does bound the content to 2400 bytes, and nothing a caller
+     * can write into this one field gets past that.
+     *
+     * <p><b>What it does not promise.</b> Not that the row will store, because the entry is not only
+     * this field. It is the content's bytes plus the three names plus fifteen bytes of tuple overhead,
+     * so at the cap the three scope columns have roughly 280 bytes between them — measured, 280 bytes of
+     * names stores and 285 does not — and nothing enforces that. {@code observer} and {@code observed}
+     * are unbounded fields of the same request body: a hundred-character conclusion written into a pair
+     * with 1200-byte names is still a 500. This cap takes {@code content} out of reach of the failure;
+     * it does not close the route. Closing it means changing the index or guarding
+     * {@code ConclusionWriter}, which is also the only place the <em>deriver's</em> output could be
+     * caught and which no constraint on this field can reach. Left open deliberately.
+     */
+    public static final int MAX_CONCLUSION_CHARS = 800;
+
+    /**
      * Ceiling on one roster request's peer list.
      *
      * <p>A hundred, because that is what the neighbouring list on this surface already costs: {@link
-     * CreateMessages#messages} has carried {@code @Size(max = 100)} since it was written, and {@code
+     * CreateMessages#messages} has capped its own list at a hundred since it was written, and {@code
      * MessageIngestionService.MAX_BATCH} enforces the same number one layer down. The two lists have the
      * same shape — elements in one body, each of which turns into a fixed number of writes — so they
      * should not disagree about how many is too many. The immediate write cost is in fact the same on
@@ -106,8 +188,25 @@ public final class Requests {
      *     was inert: a message with blank content was accepted with a 200 and stored. The blank
      *     <em>peer</em> that looked like it was being rejected was in fact refused much deeper, by the
      *     key encoder, and reported as {@code bad_key}.
+     *     <p>{@code min = 1} is redundant against {@code @NotEmpty} for validation and load-bearing for
+     *     the published schema — the trap {@link AddSessionPeers} and {@link NewMessage} each document,
+     *     and this was the field it was still open on. swagger-core applies {@code @NotEmpty} first,
+     *     which sets {@code minItems: 1}, and then applies {@code @Size} over the top:
+     *     {@code ValidationAnnotationsUtils.applySizeConstraint} calls {@code setMinItems(min)} with no
+     *     guard on whether anything already set it, so a bare {@code @Size(max = 100)} published
+     *     {@code minItems: 0}. Nothing about the runtime changed and nothing here changes it —
+     *     {@code @NotEmpty} has answered 400 to {@code {"messages":[]}} all along, while
+     *     {@code docs/openapi.json} told generated clients that body was valid.
+     *     <p>Stating {@code min} is the only fix available at this layer, which is worth writing down
+     *     because the alternatives look cleaner than they are. {@code @Schema(minItems = 1)} loses to
+     *     the same unguarded overwrite. Dropping {@code @NotEmpty} would publish {@code minItems: 1},
+     *     but only the not-null family calls {@code updateRequiredItem}, so {@code required} would go
+     *     with it and a null list would stop being refused — a real change in what the endpoint
+     *     accepts, traded for a cosmetic one. And an {@code OpenApiCustomizer} rewriting the finished
+     *     document would put a second opinion about this field in a place that cannot see the
+     *     annotation, which is how the two disagree again later.
      */
-    public record CreateMessages(@Valid @NotEmpty @Size(max = 100) List<NewMessage> messages) {
+    public record CreateMessages(@Valid @NotEmpty @Size(min = 1, max = 100) List<NewMessage> messages) {
     }
 
     /**
@@ -174,9 +273,21 @@ public final class Requests {
      * disappearance this constraint exists to prevent, arriving through the constraint itself.
      * {@code @NotBlank} stays because it rejects {@code null} and because it is what publishes
      * {@code minLength: 1}.
+     *
+     * <p>{@code content} had a floor and no ceiling, which is the half of the arithmetic {@link
+     * NewMessage} names one field over and this field had never had at all. See {@link
+     * #MAX_CONCLUSION_CHARS} for where 800 comes from and what it is measured against; the short of it
+     * is that the database refuses this row from around 900 Hangul characters upwards and reports the
+     * refusal as a 500, so the endpoint has been accepting bodies it cannot store.
+     *
+     * <p>{@code min = 1} beside {@code @NotBlank} for the reason the two records above give: {@code
+     * @Size} overwrites the {@code minLength} that {@code @NotBlank} publishes, and a bare {@code
+     * @Size(max = …)} here would have swapped a correct {@code minLength: 1} for {@code 0} — buying a
+     * ceiling by breaking a floor, in the file whose subject is the schema telling the truth.
      */
     public record CreateConclusion(@NotBlank String observer, @NotBlank String observed, String session,
-            @NotBlank String content, List<@NotBlank @UsableName String> entities, String expiresAt) {
+            @NotBlank @Size(min = 1, max = MAX_CONCLUSION_CHARS) String content,
+            List<@NotBlank @UsableName String> entities, String expiresAt) {
     }
 
     /**
