@@ -176,6 +176,7 @@
       "CreateConclusion" : {
         "properties" : {
           "content" : {
+            "maxLength" : 800,
             "minLength" : 1,
             "type" : "string"
           },
@@ -211,7 +212,7 @@
               "$ref" : "#/components/schemas/NewMessage"
             },
             "maxItems" : 100,
-            "minItems" : 0,
+            "minItems" : 1,
             "type" : "array"
           }
         },

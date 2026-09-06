@@ -304,6 +304,57 @@ first release goes out.
   **It bounds a request, not the roster.** `POST` adds, so a larger room can still be assembled a
   hundred at a time. That is left open deliberately: it is a rate limiter's job rather than a
   validator's.
+- **`docs/openapi.json` said an empty message batch was valid — the document changed, the runtime did
+  not.** `CreateMessages.messages` carries `@NotEmpty`, so `{"messages":[]}` has been a 400 since the
+  record was written, and the published schema said `minItems: 0`. The culprit is swagger-core
+  underneath springdoc: `ValidationAnnotationsUtils.applySizeConstraint` calls `setMinItems(min)` with
+  no guard on whether anything already set it, and it runs **after** the pass `@NotEmpty` uses to set
+  `minItems: 1`. So a field written `@Size(max = 100)` buys a ceiling by losing its floor. It is now
+  `@Size(min = 1, max = 100)`, following `AddSessionPeers.peers`. Nothing cleaner is available:
+  `@Schema(minItems = 1)` loses to the same overwrite, and dropping `@NotEmpty` would publish
+  `minItems: 1` but take `required` with it and let a null array through.
+  **No request starts being refused.** One line of `docs/openapi.json` changes, and a generated client
+  stops having a reason to send the empty array that has always come back 400.
+- **An injected conclusion's text is now bounded — `Requests.MAX_CONCLUSION_CHARS`, 800 characters,
+  and more is a 400.** `CreateConclusion.content` had a floor (`@NotBlank`) and no ceiling. It is not
+  the 32000 of `NewMessage.content`, because the database stops this row far earlier than the embedder
+  would. `ix_concl_norm` is a **btree** over `(workspace_name, observer, observed, content_norm)`, and
+  a btree entry cannot exceed 2704 bytes on an 8 KB page. Messages carry no such index —
+  `ix_message_fts` and `ix_message_trgm` are both GIN, which indexes terms rather than the whole
+  value. Measured against the real schema through the API, on text that does not compress: a
+  conclusion of 890 Hangul characters answers 200 and 900 answers **500**; 2650 Latin characters
+  answer 200 and 2680 answer **500**; a 32000-character Hangul *message* answers 200. That 500 is
+  `index row size 2728 exceeds btree version 4 maximum 2704`, SQLSTATE 54000, which is not a
+  `DataIntegrityViolationException` — Spring translates class 54 to
+  `DataAccessResourceFailureException` — and so fell past `ApiExceptionHandler`'s constraint handler
+  to the catch-all — answered as `internal_error` and logged at ERROR, putting a client's over-long
+  field in the metric an outage is supposed to show up in.
+  **The boundary is a range, not a number.** `index_form_tuple` compresses an attribute before it
+  measures the entry, so how much text fits depends on how well that text compresses — a conclusion of
+  32000 identical syllables stores without complaint. Every number here is measured on text with no
+  repetition for a compressor to find, because that is the only side of the range a cap can be set
+  from.
+  800 is **not** 2704 divided by the three UTF-8 bytes a Hangul or CJK character costs, which would be
+  901. The same entry carries the three name columns, and nothing bounds those. Measuring the worst
+  case — content with no spaces to dilute the three-byte characters — against name lengths shows 800
+  characters fitting alongside 255 bytes of names where 825 does not.
+  **This refuses requests that used to be accepted**: a 1000-character Latin conclusion answered 200
+  and now answers 400. One field cannot hold two limits, and a cap set where Latin stops would refuse
+  nothing in the language this repository's corpus, prompts and specification are actually written in.
+  **Three bytes per character is the worst case.** `@Size` counts UTF-16 code units, and a
+  supplementary-plane character is two of them for four bytes — two bytes per counted unit, *less* than
+  a Hangul syllable costs. Measured: 800 counted characters of astral text is 1600 bytes and stores,
+  and "800 emoji" is 1600 counted characters that the validator answers 400 to. So the cap does bound
+  the field to 2400 bytes.
+  **It does not promise the row will store**, because the entry is not only this field: it is the
+  content's bytes plus the three names plus fifteen bytes of tuple overhead, leaving the scope columns
+  roughly 280 bytes between them at the cap — measured, 280 bytes of names stores and 285 does not —
+  and nothing enforces that. `observer` and `observed` are unbounded fields of the same request body,
+  so a hundred-character conclusion written into a pair with 1200-byte names is still a 500. The cap
+  takes `content` out of reach of the failure; it does not close the route. Closing it means changing
+  the index or guarding `ConclusionWriter`, which is the only place the deriver's own output could be
+  caught and which no constraint on this field can reach. Left open, and written down.
+  It appears in `docs/openapi.json` as one line: `maxLength: 800`.
 - **Tier 1 recall's candidate set has a ceiling — 1000 rows per signal path, clamped rather than
   refused.** What a recall costs is `limit × oversample`, both factors were capped at 100
   independently, and **nothing looked at the product.** `RecallService` passed it straight to
