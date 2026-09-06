@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.filter.Filter;
 import at.aimon.memory.core.filter.FilterOp;
 import at.aimon.memory.core.key.PairKey;
@@ -269,11 +270,22 @@ public class ToolRegistry {
                 """.formatted(field, description, field);
     }
 
+    /**
+     * A {@code MemoryException}, not an {@code IllegalArgumentException}, because the reader of this
+     * message is the model.
+     *
+     * <p>{@code DefaultLlmClient} turns a failing tool into a tool result and lets the loop carry on
+     * precisely so the model can fix its call and try again, and it now summarises anything that is
+     * not a {@code MemoryException} — being one is how a message says it was written for whoever is on
+     * the other end. That is right for a driver's complaint and wrong for this: "your arguments are
+     * not valid JSON, here they are" is the whole of what makes the retry possible. Nothing new
+     * reaches the model either, since the arguments are its own.
+     */
     private static JsonNode parse(String arguments) {
         try {
             return MAPPER.readTree(arguments == null || arguments.isBlank() ? "{}" : arguments);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new IllegalArgumentException("arguments are not valid JSON: " + arguments);
+            throw new MemoryException("bad_tool_arguments", "arguments are not valid JSON: " + arguments);
         }
     }
 

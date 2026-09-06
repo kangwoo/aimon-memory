@@ -47,6 +47,8 @@ class ApiActuatorTest {
         registry.add("spring.datasource.password", PostgresSupport::password);
         registry.add("aimon.memory.jwt.secret", () -> "a-test-secret-that-is-long-enough-for-hs256");
         registry.add("spring.flyway.enabled", () -> "false");
+        // Same reason as `ApiTestBase`: a context of its own, and one pool with it.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "5");
     }
 
     private HttpResponse<String> get(int port, String path) throws Exception {

@@ -139,6 +139,16 @@ public class DreamerService {
             // otherwise store the assembled prompt and an absolute server path and hand them to
             // whoever lists the pair's dreams — the leak `ApiExceptionHandler` closes on the 5xx path,
             // arriving by the route that does not pass through it.
+            //
+            // The catch is `RuntimeException`, so most of what it holds is not a `MemoryException` at
+            // all, and `publicMessageOf` used to hand those straight through. A `DataAccessException`
+            // from the specialist's own write is the ordinary case: measured, a not-null violation put
+            // the whole INSERT, the dedup scope and `Detail: Failing row contains (…)` — the derived
+            // conclusion's own text among it — into this column, and `GET /dreams` returned all 1,462
+            // bytes with a 200. `ApiExceptionHandler.constraint` answers the identical exception with
+            // one sentence, which is the asymmetry this closes rather than a new rule.
+            //
+            // The exception itself is logged whole, with its stack; it is the only copy now.
             log.warn("dream {} failed", dream.id(), e);
             dreams.fail(dream.id(), MemoryException.publicMessageOf(e));
             throw e;

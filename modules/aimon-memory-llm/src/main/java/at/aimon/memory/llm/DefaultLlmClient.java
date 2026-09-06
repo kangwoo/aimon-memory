@@ -6,6 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.spi.LlmClient;
 import at.aimon.memory.core.spi.llm.LlmMessage;
 import at.aimon.memory.core.spi.llm.LlmRequest;
@@ -32,6 +36,8 @@ import at.aimon.memory.llm.backend.ToolUse;
  * losing the assistant turn that requested it, running forever — and there should only be one of it.
  */
 public final class DefaultLlmClient implements LlmClient {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultLlmClient.class);
 
     /** Tool output beyond this is cut. A grep that matches everything must not eat the context window. */
     public static final int MAX_TOOL_OUTPUT_CHARS = 8_000;
@@ -101,7 +107,24 @@ public final class DefaultLlmClient implements LlmClient {
                     } catch (RuntimeException e) {
                         // A failing tool is data for the model, not a crash: it can retry with different
                         // arguments or say it could not find out. Aborting the loop throws away the work.
-                        output = "Tool failed: " + e.getMessage();
+                        //
+                        // `publicMessageOf`, because whatever goes in here is on its way to a caller by
+                        // the longest route in the system: the model reads it, and the model's answer is
+                        // the 200 body of `POST /chat`. The tools are recall and search, so this build's
+                        // own `MemoryException`s reach it — a rejected filter, a missing entity — and
+                        // those are worded for whoever asked and still arrive whole, which is what lets
+                        // the model retry with different arguments. What does not is the rest of a
+                        // `catch (RuntimeException)`: a `DataAccessException` out of the same store
+                        // carries the statement, the relation and, on a not-null or check violation, the
+                        // failing row. Handing that to a model and asking it to explain itself is asking
+                        // it to quote it.
+                        //
+                        // Logged here because nothing above logs it. `ToolLoopResult` records the output
+                        // for the transcript, `Dtos.ToolCallResponse` deliberately omits it, and the
+                        // exception is swallowed on purpose — so without this line the summary would be
+                        // the only trace left of a tool that is failing every call.
+                        log.warn("tool '{}' failed", use.name(), e);
+                        output = "Tool failed: " + MemoryException.publicMessageOf(e);
                         failed = true;
                     }
                 }

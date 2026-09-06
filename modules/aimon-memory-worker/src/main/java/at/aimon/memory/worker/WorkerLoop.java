@@ -181,6 +181,17 @@ public class WorkerLoop implements AutoCloseable {
             queue.markProcessed(ids(items));
             meters.counter("aimon.memory.worker.items", "task", key.taskType().wire()).increment(items.size());
         } catch (RuntimeException e) {
+            // `getMessage()` here, deliberately, while both dream sinks now summarise.
+            //
+            // `queue.last_error` is not a caller sink. Nothing reads the column back into Java:
+            // `QueueRepository.QueueItem` has no error component, `SELECT * FROM queue` is mapped by a
+            // row mapper that names its columns, and no route returns a queue row at all. Its only
+            // reader is the operator's own SQL in the runbook, which makes it a log under another name
+            // — re-checked against the schema and the route table rather than inherited.
+            //
+            // Which is why it keeps the whole message. This and the two `log` lines are now the only
+            // copies of what a driver actually said about a failed unit; a dream that failed on a
+            // constraint stores one sentence in `dreams.error` and the constraint here.
             log.error("work unit {} failed: {}", encodedKey, e.getMessage(), e);
             queue.recordFailure(ids(items), e.getMessage());
             quarantineIfExhausted(items);

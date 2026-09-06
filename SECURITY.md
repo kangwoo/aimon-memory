@@ -111,8 +111,17 @@ OpenAI 의 401 본문은 설정된 API 키를 가운데만 가린 채 되돌려�
 > 제공자를 설정하고 `AIMON_MEMORY_LLM_MODE` 를 비워 두는 것은 지원되는 배포가 아니라 **설정 실수**다.
 > 그 상태의 서비스는 `fixture_miss` 말고는 아무것도 돌려주지 않는다. 모드를 명시할 것.
 
-이 규칙은 `ErrorBodyLeakTest` · `FixtureMissBodyTest`(API) 와 `ProviderErrorLeakTest` ·
-`ReplayHarnessTest`(LLM) 가 고정한다. 어떤 응답 본문에서든 당신이 보낸 적 없는 값을 발견했다면, 그것은
+**규칙은 예외의 출신을 따진다.** 위 문단은 이 빌드가 지은 예외(`MemoryException`)를 말한다. 그것이
+아닌 것 — 드라이버·라이브러리·JDK 가 로그 독자에게 쓴 문장 — 은 아예 인용되지 않고 `an internal
+failure; see the server log` 한 줄로 요약된다. Postgres 오류 하나가 실행된 문장 전체와 제약·릴레이션
+이름을 담고, not-null·check 위반이면 실패한 행까지 덧붙이기 때문이다. HTTP 경로에서는
+`ApiExceptionHandler` 가 예전부터 그것을 거절해 왔고(`constraint_violation`, 그리고 catch-all), 200
+으로 나가는 두 자리 — 실패한 dream 의 `error` 와 `sync_failed` 이벤트의 `sync_error` — 도 이제 같다.
+로그에는 전부 남는다.
+
+이 규칙은 `ErrorBodyLeakTest` · `FixtureMissBodyTest` · `DreamErrorBodyLeakTest`(API),
+`ProviderErrorLeakTest` · `ReplayHarnessTest` · `ToolLoopTest`(LLM), `CardRefreshConsumerTest` ·
+`ReconcilerTest`(worker)가 고정한다. 어떤 응답 본문에서든 당신이 보낸 적 없는 값을 발견했다면, 그것은
 이 문서가 말하는 취약점이 맞다.
 
 ### 자격 증명과 모델 호출

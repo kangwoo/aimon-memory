@@ -12,6 +12,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import at.aimon.memory.core.MemoryException;
@@ -131,6 +132,37 @@ class CardRefreshConsumerTest {
         var closed = dreams.find(dream.id()).orElseThrow();
         assertThat(closed.status()).isEqualTo("failed");
         assertThat(closed.error()).isEqualTo("see the server log");
+    }
+
+    /**
+     * The other half of the same catch, and the one that was still open.
+     *
+     * <p>{@code consume} catches {@code RuntimeException}, and most of what that holds is not a {@code
+     * MemoryException} at all. A card refresh writes the card, so a {@code DataAccessException} out of
+     * that write lands here — and {@code publicMessageOf} used to hand a non-{@code MemoryException}
+     * its own message, which for a Postgres failure is the statement, the relation and, on a not-null
+     * or check violation, the row that failed. {@code GET /dreams} then returned all of it with a 200,
+     * while {@code ApiExceptionHandler.constraint} refuses the identical text on the HTTP path.
+     *
+     * <p>The exception still leaves this method, so {@code WorkerLoop} logs it whole and records it in
+     * {@code queue.last_error}, which no route reads.
+     */
+    @Test
+    void aFailureTheDriverWordedIsNotStoredInAColumnAResponseReturns() {
+        String driverText = "PreparedStatementCallback; SQL [INSERT INTO peer_cards …]; ERROR: null value in"
+                + " column \"tenant_id\" of relation \"peer_cards\" violates not-null constraint"
+                + "  Detail: Failing row contains (ws, alice, alice, [\"- banks at Erste\"], …).";
+        when(cards.refresh(any())).thenThrow(new DataIntegrityViolationException(driverText));
+        var dream = dreams.schedule(pair, DreamRepository.DreamType.CARD_REFRESH, 12).orElseThrow();
+        var items = enqueued(dream.id());
+
+        assertThatThrownBy(() -> consumer.consume(WorkUnitKey.cardRefresh(pair), items))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessage(driverText);
+
+        var closed = dreams.find(dream.id()).orElseThrow();
+        assertThat(closed.status()).isEqualTo("failed");
+        assertThat(closed.error()).isEqualTo("an internal failure; see the server log");
+        assertThat(closed.error()).doesNotContain("peer_cards").doesNotContain("Failing row").doesNotContain("Erste");
     }
 
     /** A unit enqueued without a dream id — nothing scheduled it — still refreshes and closes nothing. */

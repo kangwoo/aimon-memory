@@ -160,6 +160,40 @@ class ReconcilerTest {
                 .noneSatisfy(e -> assertThat(e.event()).isEqualTo(EventType.REINFORCE));
     }
 
+    /**
+     * The {@code sync_error} detail is a response body under another name.
+     *
+     * <p>{@code GET /v1/workspaces/{ws}/conclusions/{id}/events} returns each event's whole detail map
+     * in a 200, so whatever the backfill records here is on the wire. The previous sweep left this
+     * call on {@code getMessage} having checked that no fixture miss reaches it, which is true and
+     * beside the point: the other call inside that try is {@code updateEmbedding}, a JDBC UPDATE, and
+     * a {@code DataAccessException} from it is worded by the driver.
+     *
+     * <p>The state below is the documented half of a supported migration. {@code
+     * V9__vector_width_from_configuration} tells an operator to clear the column and let this sweep
+     * re-embed; do that with the width and the embedder disagreeing — the width changed, the process
+     * doing the backfill still configured for the old one — and every UPDATE fails. Measured before
+     * the fix, the stored detail was {@code PreparedStatementCallback; SQL [UPDATE conclusions SET
+     * embedding = ?::vector, …]; ERROR: expected 512 dimensions, not 1536}.
+     */
+    @Test
+    void aDatabaseFailureIsNotQuotedIntoTheEventTheAuditEndpointReturns() {
+        String id = store("alice banks at Erste", null, null);
+        jdbc.sql("ALTER TABLE conclusions ALTER COLUMN embedding TYPE vector(512)").update();
+        try {
+            assertThat(reconciler.syncEmbeddings()).isZero();
+
+            assertThat(events.history(WORKSPACE, id, 10)).anySatisfy(e -> {
+                assertThat(e.event()).isEqualTo(EventType.SYNC_FAILED);
+                assertThat(e.detail()).containsEntry("sync_error", "an internal failure; see the server log");
+            });
+        } finally {
+            // The container is shared by every test in this JVM, so the schema has to go back.
+            jdbc.sql("UPDATE conclusions SET embedding = NULL").update();
+            jdbc.sql("ALTER TABLE conclusions ALTER COLUMN embedding TYPE vector(1536)").update();
+        }
+    }
+
     @Test
     void rowsWithNoExpiryOrAFutureOneSurvive() {
         store("alice works at a bank", embedder.embed("bank", EmbedPurpose.DOCUMENT), null);

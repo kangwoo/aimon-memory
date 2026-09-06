@@ -112,7 +112,30 @@ class ReplayHarnessTest {
         MemoryException ordinary = new MemoryException("store_failed", "entity 'alice' was not found");
 
         assertThat(ordinary.publicMessage()).isEqualTo("entity 'alice' was not found");
-        assertThat(MemoryException.publicMessageOf(new IllegalStateException("plain"))).isEqualTo("plain");
+        assertThat(MemoryException.publicMessageOf(ordinary)).isEqualTo("entity 'alice' was not found");
+    }
+
+    /**
+     * Being a {@code MemoryException} is what says a message was written for the caller. Nothing else
+     * carries that claim, so nothing else is quoted.
+     *
+     * <p>This used to return the message. The population it let through is every exception the JDK,
+     * Spring and the driver raise, and a Postgres error alone names the statement, the constraint and
+     * the relation, and on a not-null or check violation appends the failing row. Two sinks copy the
+     * result of this call into a column an endpoint returns in a 200, so "the caller sees only what
+     * was written for the caller" held for the {@code MemoryException} half of the catch and for no
+     * other.
+     */
+    @Test
+    void aFailureNobodyHereWordedIsSummarisedRatherThanQuoted() {
+        String driver = "PreparedStatementCallback; SQL [INSERT INTO conclusions …]; ERROR: null value in"
+                + " column \"tenant_id\" violates not-null constraint  Detail: Failing row contains (…)";
+
+        assertThat(MemoryException.publicMessageOf(new IllegalStateException(driver)))
+                .isEqualTo("an internal failure; see the server log");
+        // Including the one whose message is null: a caller must not be handed "null" either.
+        assertThat(MemoryException.publicMessageOf(new NullPointerException()))
+                .isEqualTo("an internal failure; see the server log");
     }
 
     @Test

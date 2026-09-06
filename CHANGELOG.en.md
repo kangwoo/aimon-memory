@@ -374,6 +374,34 @@ first release goes out.
   copied towards a caller: a failed dream stores its message in `dreams.error` and
   `Dtos.DreamResponse` returns that column in a **200**, so a rule enforced only at the 5xx boundary
   is a rule with a second way out. Both sites now use `publicMessage`.
+- **The two errors that arrive on a 200 now carry only what was written for the caller.**
+  `MemoryException.publicMessageOf` handed anything that was not a `MemoryException` its own message,
+  so the rule reached only the half of a `catch (RuntimeException)` that this build words itself. The
+  other half is what a driver, a library or the JDK wrote for whoever reads the log. A single Postgres
+  error carries the statement it was executing, the constraint and the relation, and for a not-null or
+  check violation appends `Detail: Failing row contains (…)` — the row. Measured, with a dream whose
+  write met a not-null column: `GET /v1/workspaces/{ws}/dreams` answered **200** with 1,462 bytes
+  holding the whole INSERT, every column name, the dedup scope out of the `ON CONFLICT` clause, and the
+  text, normalised form, hash and leading vector of the conclusion the dream had just derived. The
+  identical exception on the HTTP path is refused by `ApiExceptionHandler.constraint` in 124 bytes —
+  one door shut, the other open. Anything that is not a `MemoryException` is now `an internal failure;
+  see the server log`. The same rule reaches the `sync_error` that
+  `GET /v1/workspaces/{ws}/conclusions/{id}/events` returns on a 200, where a failed backfill UPDATE
+  had been storing the statement and the schema. `dreams.error` was kept in the response rather than
+  removed: a dream fails in the worker, so there is no 5xx and no `code` beside it, and that string is
+  the only way a caller can tell `llm_not_configured` — which is theirs to fix — from a server fault.
+- **The same rule reaches what a failing tool tells the model.** `DefaultLlmClient` hands a failing
+  tool back to the model as a result, and the model's answer is the 200 body of `POST /chat` — the
+  longest route a message takes towards a caller. The tools are recall and search, so a
+  `DataAccessException` out of the store was going straight to the model. Only a `MemoryException` does
+  now. Which is why the exception `ToolRegistry` raises on malformed tool arguments changed from
+  `IllegalArgumentException` to a `MemoryException` (`bad_tool_arguments`): that sentence is written to
+  tell the model to fix its call and try again, and the type is where a message says who it is for.
+- **The log gained rather than lost.** `ReconcilerService`'s embedding-failure line now takes the
+  exception itself, stack included, and `DefaultLlmClient` logs a failing tool call, which nothing did
+  before — the summary went to the model and nowhere else. `queue.last_error` still stores the whole
+  message: no route reads that column (`QueueRepository.QueueItem` has no error field) and the
+  operator's runbook SQL is its only reader.
 - The `Jsonb` case is **not reachable by a request.** Every writer into those columns is typed
   `Map<String, Object>` or `List<String>` and Postgres validates jsonb on the way in, so a body that
   survives ingress survives the read; it fires only on bytes this build did not write — an operator's
