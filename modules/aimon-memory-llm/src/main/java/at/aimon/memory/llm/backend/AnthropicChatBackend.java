@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -32,6 +35,8 @@ import at.aimon.memory.llm.LlmException;
  * since a 400 is {@code llm_rejected} and deliberately aborts the plan rather than retrying it.
  */
 public final class AnthropicChatBackend implements ChatBackend {
+
+    private static final Logger log = LoggerFactory.getLogger(AnthropicChatBackend.class);
 
     private static final String API_VERSION = "2023-06-01";
 
@@ -153,8 +158,14 @@ public final class AnthropicChatBackend implements ChatBackend {
             return event;
         }
         JsonNode error = event.path("error");
-        throw new LlmException("llm_stream_error", "anthropic ended the stream with "
-                + error.path("type").asText("an error") + ": " + error.path("message").asText(""));
+        // The provider's free-text `message` is logged, not returned: it is the same third-party
+        // prose as an error body from `HttpSupport.send`, and this message lands in a 500 body
+        // verbatim. `type` stays — it is a fixed token from the provider's own vocabulary
+        // (`overloaded_error`, `api_error`), which is what tells a caller whether to retry.
+        log.warn("anthropic ended the stream with {}: {}", error.path("type").asText("an error"),
+                error.path("message").asText(""));
+        throw new LlmException("llm_stream_error",
+                "anthropic ended the stream with " + error.path("type").asText("an error"));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

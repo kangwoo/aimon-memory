@@ -73,8 +73,16 @@ public final class FallbackChatBackend implements ChatBackend {
         // is where the provider, the status code and the transport error actually are; summarising it
         // to a string threw all of that away at the one point where someone is asking why every
         // provider refused.
+        //
+        // `publicMessage`, not `getMessage`: this composes another exception's message into one that
+        // becomes a 500 body, so it inherits whatever that one was written for. A fixture miss is a
+        // diagnostic for a developer and carries the assembled prompt and an absolute server path —
+        // and it arrives here whenever a second provider is configured, because
+        // `MemoryConfiguration.llmClient` wraps each provider in `RecordingChatBackend` and composes
+        // the wrapped ones. Quoting `getMessage` here would put back on the wire exactly what
+        // `ApiExceptionHandler` refuses to, one indirection further along.
         throw new LlmException("llm_exhausted",
-                "all " + plan.size() + " attempts failed; last: " + (last == null ? "unknown" : last.getMessage()),
+                "all " + plan.size() + " attempts failed; last: " + (last == null ? "unknown" : last.publicMessage()),
                 last);
     }
 

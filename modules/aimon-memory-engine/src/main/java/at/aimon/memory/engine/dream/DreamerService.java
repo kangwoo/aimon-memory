@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.Conclusion;
@@ -133,7 +134,13 @@ public class DreamerService {
             dreams.complete(dream.id(), produced);
             log.info("dream {} for {} produced {} conclusions", dream.id(), pair, produced);
         } catch (RuntimeException e) {
-            dreams.fail(dream.id(), e.getMessage());
+            // `publicMessageOf`, not `getMessage`: `Dtos.DreamResponse` returns this column in a 200,
+            // so it is a response body under another name. A fixture miss reaching here would
+            // otherwise store the assembled prompt and an absolute server path and hand them to
+            // whoever lists the pair's dreams — the leak `ApiExceptionHandler` closes on the 5xx path,
+            // arriving by the route that does not pass through it.
+            log.warn("dream {} failed", dream.id(), e);
+            dreams.fail(dream.id(), MemoryException.publicMessageOf(e));
             throw e;
         }
     }

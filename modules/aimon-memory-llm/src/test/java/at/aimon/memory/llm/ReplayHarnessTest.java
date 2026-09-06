@@ -2,6 +2,7 @@ package at.aimon.memory.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.spi.llm.LlmRequest;
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.core.spi.llm.ToolDef;
@@ -72,6 +74,45 @@ class ReplayHarnessTest {
         assertThat(replaying.chat(call("original prompt", "q"))).isNotNull();
         assertThatThrownBy(() -> replaying.chat(call("edited prompt", "q"))).isInstanceOf(FixtureMissException.class)
                 .hasMessageContaining("AIMON_MEMORY_LLM_MODE=record");
+    }
+
+    /**
+     * The two audiences, kept apart on the exception rather than at one of its readers.
+     *
+     * <p>{@code getMessage} is written for a developer staring at a failed {@code ./gradlew test}, and
+     * the test above depends on it: the whole point of the harness is that a prompt edit shows you the
+     * new prompt. {@code publicMessage} is what anything copying a message towards a caller uses, and
+     * it has to be free of all of it — the assembled prompt, the absolute fixtures path, and the
+     * re-record recipe, which names the environment variable that turns replay off.
+     *
+     * <p>Pinned here, not only at the HTTP boundary, because {@code ApiExceptionHandler} is not the
+     * only reader: a failed dream stores its message in a column {@code Dtos.DreamResponse} returns in
+     * a 200.
+     */
+    @Test
+    void theDiagnosticIsForTheDeveloperAndTheWireMessageForNobodyElse(@TempDir Path directory) {
+        ChatBackend replaying = new RecordingChatBackend(new FakeChatBackend("gpt-test"),
+                new LlmFixtureStore(directory), LlmMode.REPLAY);
+
+        FixtureMissException thrown = (FixtureMissException) catchThrowable(
+                () -> replaying.chat(call("a system prompt nobody outside should read", "q")));
+
+        assertThat(thrown).isNotNull();
+        assertThat(thrown.getMessage()).contains("a system prompt nobody outside should read")
+                .contains(directory.toString()).contains("AIMON_MEMORY_LLM_MODE=record");
+        assertThat(thrown.publicMessage()).doesNotContain("a system prompt nobody outside should read")
+                .doesNotContain(directory.toString()).doesNotContain("AIMON_MEMORY_LLM_MODE")
+                .isEqualTo("no recorded LLM fixture matches this request; see the server log");
+        assertThat(MemoryException.publicMessageOf(thrown)).isEqualTo(thrown.publicMessage());
+    }
+
+    /** Every other failure is written for the caller, so the two are the same string. */
+    @Test
+    void anOrdinaryMemoryExceptionKeepsItsWholeMessage() {
+        MemoryException ordinary = new MemoryException("store_failed", "entity 'alice' was not found");
+
+        assertThat(ordinary.publicMessage()).isEqualTo("entity 'alice' was not found");
+        assertThat(MemoryException.publicMessageOf(new IllegalStateException("plain"))).isEqualTo("plain");
     }
 
     @Test

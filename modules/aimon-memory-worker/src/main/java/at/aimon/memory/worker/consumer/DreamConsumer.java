@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.key.TaskType;
 import at.aimon.memory.core.key.WorkUnitKey;
 import at.aimon.memory.engine.dream.DreamerService;
@@ -77,7 +78,12 @@ public class DreamConsumer implements WorkUnitConsumer {
                 dreamIds.forEach(id -> dreams.complete(id, lines.size()));
             } catch (RuntimeException e) {
                 // Failed, not left pending. A pending row is indistinguishable from lost work.
-                dreamIds.forEach(id -> dreams.fail(id, e.getMessage()));
+                //
+                // `publicMessageOf`, not `getMessage`: `Dtos.DreamResponse` returns this column in a
+                // 200. A card refresh is a model call, so a deployment left on the default replay mode
+                // fails here with the whole assembled prompt and an absolute server path in the
+                // message — see `MemoryException.publicMessage`. `WorkerLoop` logs the full one.
+                dreamIds.forEach(id -> dreams.fail(id, MemoryException.publicMessageOf(e)));
                 throw e;
             }
         }

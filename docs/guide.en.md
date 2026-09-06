@@ -854,6 +854,25 @@ A 422 message **names the values it would accept**: an unknown configuration key
 keys, an unknown filter field lists every field in that schema. Read the error body before reopening
 the docs.
 
+### What a 5xx body does not tell you
+
+**An error message hands back only what you sent.** A 4xx or a 422 quotes your request, which is the
+whole point of it. A 5xx may still repeat what you sent — `store_failed` names the entity or session
+you asked for — and it adds nothing else. Stored values (an unparseable `metadata` column), a model
+provider's response body (a 401 that quotes your own API key back), a model's output, the prompt this
+build assembles on your behalf, and server file paths **do not go in the body.** All of it is in the
+server log, uncut.
+
+One error arrives on a 200: the `error` field of `GET /v1/workspaces/{ws}/dreams` is the message a
+failed dream left behind, and the same rule applies to it — neither the prompt sent to the model nor a
+server path is in there.
+
+This means a 5xx body is not, by itself, enough to diagnose one — that is the intent. `code` tells you
+what failed (`store_failed`, `llm_transport`, `bad_json`, …) and, for a provider error, the status
+code it answered with. For anything more, ask an operator for the log at that timestamp. This is not
+about withholding information; it is about the response body not being a route by which stored content
+escapes.
+
 ### A 403 you cannot explain
 
 Check in this order.

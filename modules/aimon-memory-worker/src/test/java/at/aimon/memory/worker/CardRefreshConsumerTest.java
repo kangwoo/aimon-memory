@@ -104,6 +104,35 @@ class CardRefreshConsumerTest {
         assertThat(closed.error()).contains("no usable lines");
     }
 
+    /**
+     * The failure message stored here is a response body under another name.
+     *
+     * <p>{@code Dtos.DreamResponse} returns {@code dreams.error}, so {@code GET /dreams} is a 200 that
+     * carries whatever this stored — which is why the consumer reads {@code publicMessage} rather than
+     * {@code getMessage}. The exception that needs it is {@code FixtureMissException}: a card refresh
+     * is a model call, so a deployment left on the default replay mode fails one with the assembled
+     * prompt and an absolute server path in the message. This module cannot see that class, so the
+     * contract is exercised directly — any {@code MemoryException} that distinguishes the two.
+     */
+    @Test
+    void aMessageWrittenForSomebodyElseIsNotStoredInAColumnAResponseReturns() {
+        when(cards.refresh(any())).thenThrow(new MemoryException("fixture_miss", "the whole assembled prompt") {
+            @Override
+            public String publicMessage() {
+                return "see the server log";
+            }
+        });
+        var dream = dreams.schedule(pair, DreamRepository.DreamType.CARD_REFRESH, 12).orElseThrow();
+        var items = enqueued(dream.id());
+
+        assertThatThrownBy(() -> consumer.consume(WorkUnitKey.cardRefresh(pair), items))
+                .isInstanceOf(MemoryException.class).hasMessage("the whole assembled prompt");
+
+        var closed = dreams.find(dream.id()).orElseThrow();
+        assertThat(closed.status()).isEqualTo("failed");
+        assertThat(closed.error()).isEqualTo("see the server log");
+    }
+
     /** A unit enqueued without a dream id — nothing scheduled it — still refreshes and closes nothing. */
     @Test
     void aUnitWithNoDreamIdStillRefreshes() {

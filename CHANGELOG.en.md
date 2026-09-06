@@ -350,5 +350,35 @@ first release goes out.
   repository is still in use against a database that is not on this host (`default_db_password`).
   Anyone who has read the repository knows that value. The local flows (`docker compose`,
   Testcontainers) are on loopback and pass unchanged.
+- **A 5xx body no longer carries values the caller never sent.** The design where a
+  `MemoryException`'s message becomes the response body stands — `store_failed` naming a workspace, an
+  entity or a session repeats what the caller just sent, so nothing new escapes. What changed is the
+  five places that put in something the caller *had* never sent. `Jsonb` returned an entire
+  unparseable jsonb column (`metadata`, `configuration`, and `internal_metadata`, which is on no
+  response DTO at all); `HttpSupport` and `OpenAiEmbedder` returned the provider's error body (an
+  OpenAI 401 quotes the configured API key back with only its middle masked); `Json` returned 200
+  characters of the model's output, which is written from a prompt built out of stored conclusions and
+  messages; both streaming backends returned the provider's free-text `message`; and
+  `KoreanTextAnalyzer` returned an absolute server path. All of it moved to the log — **uncut**, where
+  diagnosis needs it. The body keeps only what a caller can act on: the status code, the error type.
+- **A `fixture_miss` no longer hands back the prompt — on the 503 or on a 200.**
+  `FixtureMissException` is a test-harness diagnostic: it names the fixtures directory as an
+  absolute path and inlines the whole canonical request — the system prompt, the tool schemas, every
+  turn. Replay is not opt-in, which is what makes that an API surface: `LlmMode.fromEnvironment`
+  returns `REPLAY` unless `AIMON_MEMORY_LLM_MODE` or `aimon.memory.llm.mode` is set, and
+  `MemoryConfiguration.llmClient` wraps every configured provider in `RecordingChatBackend`
+  unconditionally — so a deployment that sets a provider and a key and leaves the mode alone
+  answered every model call with that body. The exception's message is unchanged, because a failing
+  `./gradlew test` is what it is written for; the split lives on `MemoryException.publicMessage`
+  instead. Not in `ApiExceptionHandler`, because the handler is not the only place a message is
+  copied towards a caller: a failed dream stores its message in `dreams.error` and
+  `Dtos.DreamResponse` returns that column in a **200**, so a rule enforced only at the 5xx boundary
+  is a rule with a second way out. Both sites now use `publicMessage`.
+- The `Jsonb` case is **not reachable by a request.** Every writer into those columns is typed
+  `Map<String, Object>` or `List<String>` and Postgres validates jsonb on the way in, so a body that
+  survives ingress survives the read; it fires only on bytes this build did not write — an operator's
+  UPDATE, a restore, a hand-written migration. It was fixed anyway because that is exactly when the
+  500 gets read by someone who should not see the row. The other four are reached by an ordinary
+  request the moment a provider answers with an error.
 
 [Unreleased]: https://github.com/kangwoo/aimon-memory/commits/main

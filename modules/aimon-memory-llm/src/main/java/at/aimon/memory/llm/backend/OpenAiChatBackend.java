@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,6 +28,8 @@ import at.aimon.memory.llm.LlmException;
  * not the schema you asked for.
  */
 public final class OpenAiChatBackend implements ChatBackend {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiChatBackend.class);
 
     private final String baseUrl;
     private final String apiKey;
@@ -98,8 +103,12 @@ public final class OpenAiChatBackend implements ChatBackend {
             return chunk;
         }
         JsonNode error = chunk.get("error");
-        throw new LlmException("llm_stream_error", "openai ended the stream with "
-                + error.path("type").asText("an error") + ": " + error.path("message").asText(""));
+        // See the Anthropic backend: `message` is the provider's own prose and would be copied into
+        // a 500 body, `type` is a fixed token and is what the caller can act on.
+        log.warn("openai ended the stream with {}: {}", error.path("type").asText("an error"),
+                error.path("message").asText(""));
+        throw new LlmException("llm_stream_error",
+                "openai ended the stream with " + error.path("type").asText("an error"));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

@@ -298,5 +298,32 @@
 - `DatabaseCredentialCheck` — 저장소에 커밋된 기본 비밀번호를 이 기계가 아닌 데이터베이스에 대고 쓰면
   기동을 거부한다(`default_db_password`). 그 값은 저장소를 읽은 누구나 안다. 로컬 흐름
   (`docker compose` · Testcontainers)은 루프백이라 그대로 통과한다.
+- **5xx 본문은 호출자가 보낸 적 없는 값을 더 이상 싣지 않는다.** `MemoryException` 의 메시지가 응답
+  본문이 되는 설계는 그대로다 — `store_failed` 가 workspace·entity·session 이름을 실어도 그건 호출자가
+  방금 보낸 값이라 새로 나가는 것이 없다. 바뀐 것은 **호출자가 보낸 적 없는** 값을 싣던 다섯 자리다.
+  `Jsonb` 는 파싱되지 않는 jsonb 컬럼을 통째로 실었고(`metadata` · `configuration`, 그리고 어떤 응답
+  DTO 에도 없는 `internal_metadata` 까지), `HttpSupport` 와 `OpenAiEmbedder` 는 제공자의 오류 본문을
+  실었으며(OpenAI 의 401 본문은 설정된 API 키를 가운데만 가린 채 되돌려준다), `Json` 은 모델의 출력
+  200자를 실었고(모델 출력은 저장된 결론·메시지로 지은 프롬프트에서 나온다), 두 백엔드의 스트림 오류는
+  제공자의 자유 문장을, `KoreanTextAnalyzer` 는 서버의 절대 경로를 실었다. 전부 로그로 옮겼다 — **잘라
+  내지 않은 전체**를, 진단에 필요한 자리에. 본문에는 상태 코드·오류 종류처럼 호출자가 행동에 옮길 수
+  있는 것만 남는다.
+- **`fixture_miss` 는 프롬프트를 더 이상 돌려주지 않는다 — 503 으로도, 200 으로도.**
+  `FixtureMissException` 은 테스트 하네스용 진단이다. fixture 디렉터리를 절대 경로로 말하고,
+  canonical request 전체 — 시스템 프롬프트, 도구 스키마, 모든 turn — 를 그대로 싣는다. 그것이 API
+  표면이 되는 이유는 replay 가 옵트인이 아니기 때문이다. `LlmMode.fromEnvironment` 는
+  `AIMON_MEMORY_LLM_MODE` 도 `aimon.memory.llm.mode` 도 없으면 `REPLAY` 를 돌려주고,
+  `MemoryConfiguration.llmClient` 는 설정된 제공자를 조건 없이 `RecordingChatBackend` 로 감싼다.
+  그래서 제공자와 키만 설정하고 모드를 두지 않은 배포는 모든 모델 호출에 그 본문을 돌려주고 있었다.
+  예외의 메시지는 그대로 둔다 — 그것이 쓰이는 자리는 실패한 `./gradlew test` 다. 대신 그 분리를
+  `MemoryException.publicMessage` 에 둔다. 응답으로 메시지를 옮겨 싣는 자리가 `ApiExceptionHandler`
+  하나가 아니기 때문이다. 실패한 dream 은 예외 메시지를 `dreams.error` 에 저장하고
+  `Dtos.DreamResponse` 가 그 컬럼을 **200** 으로 돌려준다 — 5xx 경계에서만 막으면 같은 값이 그리로
+  나간다. 두 자리 모두 이제 `publicMessage` 를 쓴다.
+- `Jsonb` 자리는 **요청으로 도달할 수 없다.** 이 컬럼들에 쓰는 경로는 전부 `Map<String, Object>` 나
+  `List<String>` 로 타입이 잡혀 있고 Postgres 가 jsonb 를 입력에서 검증하므로, ingress 를 통과한 본문은
+  읽기도 통과한다. 이 빌드가 쓰지 않은 바이트(운영자의 UPDATE, 복구, 손으로 쓴 마이그레이션)에서만
+  터진다. 그래도 고친 이유는 그때가 바로 그 500 을 봐서는 안 될 사람이 보게 되는 때이기 때문이다.
+  나머지 넷은 제공자가 오류를 돌려주는 순간 평범한 요청으로 도달한다.
 
 [Unreleased]: https://github.com/kangwoo/aimon-memory/commits/main
