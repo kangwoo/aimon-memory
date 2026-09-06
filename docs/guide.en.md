@@ -232,7 +232,11 @@ curl -s -X DELETE localhost:8080/v1/workspaces/demo/sessions/s1/peers/alice "${a
 ```
 
 `PUT` replaces the roster wholesale; `POST` adds to it. A `peer` **cannot be blank** — a
-whitespace-only name is a 400.
+whitespace-only name is a 400. At most **100 peers** per request, and more is a 400 — the same number
+as the message batch. The list is not truncated: on `PUT`, dropping the overflow would not merely
+fail to add those peers, it would **remove them from the session** and take their access to the
+transcript with it. A room larger than a hundred can be assembled with repeated `POST` calls, but
+read the fan-out cost below before you do.
 
 Membership has windows. A peer who left and came back keeps what they heard the first time without
 gaining the gap in between, and a message is never filed under someone who was not present for it.
@@ -668,7 +672,7 @@ curl -s -X PUT localhost:8080/v1/workspaces/demo/configuration "${auth[@]}" \
 | `recall.weights` | `[.50 .22 .13 .08 .05 .02]` | six numbers summing to 1.00 | Order is `[sem, kw, ent, reinf, rec, lvl]` |
 | `recall.half_life_days` | 180 | (0, 100000] | Where the recency signal halves |
 | `recall.threshold` | 0 | [0, 1] | Floor on the **fused** score |
-| `recall.oversample` | 4 | [1, 100] | How many candidates each signal path fetches before fusion |
+| `recall.oversample` | 4 | [1, 100] | How many candidates each signal path fetches before fusion. See the thousand-row ceiling below |
 | `recall.entity_top_k` | 10 | [1, 1000] | Entity neighbours considered for the boost |
 | `recall.entity_sim_cut` | 0.5 | [0, 1] | Below this, an entity match contributes nothing |
 | `dedup.cosine_distance_max` | 0.05 | [0, 2] | The furthest stage 3 will look |
@@ -681,6 +685,15 @@ curl -s -X PUT localhost:8080/v1/workspaces/demo/configuration "${auth[@]}" \
 
 The three batch values accept zero. Because the gate is an "or", zeroing one makes it always true —
 that is how batching is turned off.
+
+**`recall.oversample` is a multiplier.** What a signal path actually fetches is `limit × oversample`,
+and the recall request chooses the limit (capped at 100). Where that product exceeds **a thousand it
+is clamped to a thousand** — the number `recall.entity_top_k` already uses as its ceiling, which is
+to say the width this system permits a single signal path. Clamped, not refused: `oversample: 100` is
+still a legal setting and fetches exactly a thousand candidates at the default limit of 10. The
+response does not report the clamp: `candidatesConsidered` is the size of the union the signal paths
+produced, not the width they were asked for. The **log** does, at `debug` — set
+`AIMON_MEMORY_LOG_LEVEL=DEBUG` if a ranking moved and you want to know whether this is why.
 
 ### Two traps
 
@@ -821,7 +834,7 @@ The body is always `{"code": "...", "message": "..."}`.
 | `bad_lifetime` | 400 | Over 30 days, or not positive |
 | `bad_reasoning_level` | 400 | Not one of `minimal` `low` `medium` `high` `max` |
 | `batch_too_large` | 400 | More than 100 messages in one request |
-| `bad_request` | 400 | The body is not JSON, or a field constraint failed — blank message `content` (and over 32000 characters), a blank `peer` name, an empty turn in `history`, and a blank element in `entities` all land here |
+| `bad_request` | 400 | The body is not JSON, or a field constraint failed — blank message `content` (and over 32000 characters), a blank `peer` name, more than 100 peers in one roster request, an empty turn in `history`, and a blank element in `entities` all land here |
 | `bad_level` | 400 | A conclusion level outside the four values |
 | `llm_not_configured` | 503 | Tier 2 or derivation asked for with no model provider |
 | `fixture_miss` | 503 | Replay mode, and the call is not in the recorded fixtures |

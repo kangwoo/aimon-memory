@@ -129,6 +129,23 @@ first release goes out.
   and the difference is the point: a local publish resolves on exactly one machine, so the contract
   tier ran there and skipped everywhere else, CI included. The 21 cases now run on a fresh clone and
   on a runner. The reasoning is ADR 0007's third addendum.
+- **A batch of messages goes in as one statement rather than one per row.**
+  `MessageRepository.insertBatch` issued an `INSERT … RETURNING` per row in the batch. Nothing
+  explodes — the batch is capped by `@Size(max = 100)` — but a hundred messages meant a hundred round
+  trips and a hundred parses inside one transaction. It is one multi-row `VALUES` now. What made the
+  loop look unavoidable is `RETURNING`: `id` and `created_at` are generated, the caller needs both,
+  and JDBC batch execution does not hand back result sets. Postgres does — a multi-row
+  `INSERT … RETURNING` is a single statement that returns every row. **No behaviour changes:** the
+  same rows, in the same order, with the same columns. Seven parameters per row against the protocol
+  limit of 65535 puts the ceiling at 9362 rows, and the driver refuses 9363 before the statement
+  leaves the JVM — two orders of magnitude above `MessageIngestionService.MAX_BATCH`, and a loud
+  failure rather than a silent one if that ever changes. **Measured** (local Testcontainers pgvector, batches of 100,
+  15 rounds after 3 warm-up rounds, the two implementations alternated within each round): across
+  three runs the per-row loop's median was 15.0–16.3 ms against 2.3–2.9 ms for one statement, so
+  between 5× and 7× on this machine. **Those numbers describe a loopback, not a deployment.** Going from a hundred
+  round trips to one should widen the gap wherever there is network latency, but that was not
+  measured. What guards the regression is not a duration: `MessageBatchInsertTest` counts the
+  statements.
 
 ### Fixed
 
@@ -260,6 +277,56 @@ first release goes out.
   point where `OpenAiEmbedder` truncates its input: text past it is cut before it becomes a vector, so
   storing it means storing a tail that semantic recall can never see. Refusing it beats doing that
   silently. It appears in `docs/openapi.json` as `maxLength: 32000`.
+- **A session roster is bounded — 100 peers per request, and more is a 400.**
+  `Requests.MAX_SESSION_PEERS`. `AddSessionPeers.peers` carried only `@NotEmpty`, so the roster was
+  unbounded and one request drove an unbounded number of writes: `HierarchyController` calls
+  `peers.getOrCreate` (an insert and a read) and `sessionPeers.join` (an upsert and a window insert)
+  per element, which is **four statements each**. A longer roster also widens the fan-out computed for
+  **every** later batch of messages in that session, a cost ADR 0006 fixes at N + N(N−1) extraction
+  calls. A hundred is the number the neighbouring `CreateMessages.messages` has used since it was
+  written — `MessageIngestionService.MAX_BATCH` enforces the same one a layer down — and twice the
+  largest room the documents discuss: the guide's worked example is a ten-person room at a hundred
+  calls per batch, and the fifty-person channel is the case ADR 0006 says `observe_others` exists to
+  switch off. That headroom is the point, because this cap does not bound the fan-out and cannot:
+  see below.
+  **This is a consumer-visible change** — a client sending a 101-peer roster used to get a 200 and now
+  gets a 400. Why it is not truncated instead is the point of the bound. `Bounds` clamps the paging
+  and limit parameters, and the reason it gives is that pagination tells the caller whether more
+  remains; a roster has no such signal. On `PUT` truncating would be **destructive**:
+  `SessionPeerRepository.replace` closes the membership of everyone not named, so the peers silently
+  dropped past the hundredth would not merely fail to be added — they would be removed from the
+  session and lose their access to its messages.
+  This is a **new** constraint where the published schema promised nothing, the same character as
+  `CreateConclusion.entities`, so `docs/openapi.json` gains one line: `maxItems: 100` on
+  `AddSessionPeers.peers`. It is written `@Size(min = 1, …)` because springdoc derives `minItems` from
+  `@Size` wherever it finds one, and a bare `max` would have turned the already-published
+  `minItems: 1` into `0` — the same trap `NewMessage` documents one field over.
+  **It bounds a request, not the roster.** `POST` adds, so a larger room can still be assembled a
+  hundred at a time. That is left open deliberately: it is a rate limiter's job rather than a
+  validator's.
+- **Tier 1 recall's candidate set has a ceiling — 1000 rows per signal path, clamped rather than
+  refused.** What a recall costs is `limit × oversample`, both factors were capped at 100
+  independently, and **nothing looked at the product.** `RecallService` passed it straight to
+  `conclusions.semantic` and `conclusions.keyword`, so ten thousand rows per path and twenty thousand
+  `Conclusion` objects accumulated in a `LinkedHashMap`, then went through one `id = ANY (?)` array,
+  one BM25 pass in Java, one `linksAmong` array and one sort, to return at most a hundred. The
+  `Bounds` javadoc says recall is worse than linear "because the ranker oversamples each signal path by
+  a multiple of it" — and that multiple was itself unbounded in the product. A thousand is the width
+  this system **already** permits a recall path: `recall.entity_top_k` is validated to `[1, 1000]` in
+  the same `parse()` call.
+  **No previously accepted request or configuration is refused.** `recall.oversample` keeps its
+  `[1, 100]` range, and `oversample: 100` is honoured in full at the default limit of 10, where it
+  fetches exactly a thousand. The defaults, 10 × 4 = 40, are a twenty-fifth of the ceiling. The value
+  is not rejected at the write boundary because it **can** be honoured: `bounded()` validates a
+  multiplier and cannot see the limit it will be multiplied by, so a product ceiling is not
+  expressible there. The response cannot report the clamp — `candidatesConsidered` is the size of the
+  union the signal paths produced, not the width they were asked for — so `RecallService` logs it at
+  `debug` instead. A ranking that moves with nothing in any log to say why is the failure
+  `WorkspaceSettingsService` already names one module over, where an unusable configuration falls
+  back and says so "since the symptom otherwise is only that tuning had no effect".
+  **What does change is the result.** Where the product used to exceed a thousand, the two paths now
+  see a narrower candidate set, so a workspace tuned above the ceiling can get a different ranking
+  than it got before. That is the price of the bound, and it is the only behaviour this alters.
 - **A fresh clone did not build.** `aimonCore` was pinned to `0.3.0-SNAPSHOT`, which is not on
   Central, so `:aimon-memory-client:compileJava` failed on every machine that had not published the
   snapshot itself. aimon-core is back on the released 0.2.4, and the contract suite — whose testkit

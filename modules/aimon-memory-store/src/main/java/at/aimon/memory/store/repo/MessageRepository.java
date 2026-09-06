@@ -20,6 +20,9 @@ import at.aimon.memory.store.filter.FilterSchema;
 @Repository
 public class MessageRepository {
 
+    /** Columns in the order {@link #insertBatch} binds them, one row's worth. */
+    private static final int INSERT_COLUMNS = 7;
+
     private final JdbcClient jdbc;
     private final FilterCompiler filters = new FilterCompiler(FilterSchema.MESSAGES);
 
@@ -35,25 +38,68 @@ public class MessageRepository {
      *
      * <p>The block is allocated once, so a hundred messages take one session-row lock rather than a
      * hundred, and the ordering within the batch is exactly the order the caller passed.
+     *
+     * <p><b>One statement, not one per row.</b> RETURNING every column already halved this — reading
+     * the rows back afterwards was a second statement per row — but the loop that replaced it still
+     * paid a network round trip and a parse per message, so the documented batch size of a hundred
+     * cost a hundred of each inside one transaction. A single multi-row {@code VALUES} costs one.
+     * What made the loop look unavoidable is {@code RETURNING}: {@code id} and {@code created_at} are
+     * generated, the caller needs both, and JDBC batch execution does not hand back result sets.
+     * Postgres does — a multi-row {@code INSERT … RETURNING} is one statement and returns every row.
+     * Seven parameters per message against the protocol's limit of 65535 puts the ceiling at 9362 rows,
+     * two orders of magnitude above {@code MessageIngestionService.MAX_BATCH}; if that cap is ever
+     * raised past a few thousand this needs chunking rather than a bigger statement. Nothing here
+     * enforces the ceiling, and it does not need to: the driver refuses 9363 rows before the statement
+     * leaves the JVM ({@code PSQLException}, "can have at most 65,535 parameters"), so the failure is
+     * loud and nothing is written. Both of the two callers above it stop at a hundred.
+     *
+     * <p>Sorted by {@code seq_in_session} on the way out rather than trusted to arrive in order.
+     * Postgres does return {@code RETURNING} rows in insertion order here, but it does not promise
+     * to, and the caller's contract is that {@code saved.get(i)} is {@code messages.get(i)}.
+     *
+     * <p>What rests on that is the response, not the fan-out. {@code MessageIngestionService} resolves
+     * each message's observing pairs from the returned row itself — {@code ObserverResolver} reads the
+     * row's own speaker and timestamp — so a list arriving in another order would still file every
+     * message under the right pairs. It is {@code MessageController} that hands
+     * {@code IngestResult.messages()} straight back as the response body, where the order is the one
+     * the caller sent and this sort is the only thing that would restore it. The sequence numbers are
+     * assigned in this method, so the ordering is ours to restore and costs one comparison sort of at
+     * most a hundred elements. It is the same judgement the keyword query in {@code
+     * ConclusionRepository} writes down: an order the database is free to change is not an order.
+     *
+     * <p>Postgres returns these rows in order, so against a real database the sort is a no-op and no
+     * ordinary test distinguishes it from its absence. {@code MessageBatchInsertTest} makes the database
+     * break the order instead — it rewrites this statement into a data-modifying CTE that returns the
+     * rows newest first — so the guard is exercised rather than merely asserted.
      */
     public List<Message> insertBatch(String workspace, String session, long startSeq, List<NewMessage> messages) {
-        List<Message> out = new ArrayList<>(messages.size());
+        if (messages.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sql = new StringBuilder("""
+                INSERT INTO messages
+                  (workspace_name, session_name, peer_name, content, seq_in_session, token_count, metadata)
+                VALUES """);
+        List<Object> params = new ArrayList<>(messages.size() * INSERT_COLUMNS);
         long seq = startSeq;
-        for (NewMessage message : messages) {
-            // RETURNING every column, not just the id. Reading the row back afterwards doubled the
-            // round trips for no information the insert could not already hand over — at the
-            // documented batch size of 100 that was 200 statements inside one transaction.
-            out.add(jdbc.sql("""
-                    INSERT INTO messages
-                      (workspace_name, session_name, peer_name, content, seq_in_session, token_count, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    RETURNING id, workspace_name, session_name, peer_name, content,
-                              seq_in_session, token_count, metadata, created_at
-                    """).params(workspace, session, message.peerName(), message.content(), seq, message.tokenCount(),
-                    Jsonb.of(message.metadata())).query(RowMappers.MESSAGE).single());
+        for (int i = 0; i < messages.size(); i++) {
+            NewMessage message = messages.get(i);
+            sql.append(i == 0 ? "" : ", ").append("(?, ?, ?, ?, ?, ?, ?)");
+            params.add(workspace);
+            params.add(session);
+            params.add(message.peerName());
+            params.add(message.content());
+            params.add(seq);
+            params.add(message.tokenCount());
+            params.add(Jsonb.of(message.metadata()));
             seq++;
         }
-        return out;
+        sql.append(" RETURNING id, workspace_name, session_name, peer_name, content,")
+                .append(" seq_in_session, token_count, metadata, created_at");
+
+        List<Message> saved = new ArrayList<>(jdbc.sql(sql.toString()).params(params).query(RowMappers.MESSAGE).list());
+        saved.sort(java.util.Comparator.comparingLong(Message::seqInSession));
+        return saved;
     }
 
     public java.util.Optional<Message> byId(String workspace, long id) {
