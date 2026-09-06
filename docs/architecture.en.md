@@ -374,10 +374,10 @@ a memory system worth using
 ### Gates
 
 ```
-589  tests, all green
-278  need no database        (`test`)          ┐
+600  tests, all green
+280  need no database        (`test`)          ┐
  21  aimon-core's suite      (`contractTest`)  ┘ the fast gate, `checkAll`
-290  need Postgres           (`integrationTest`)
+299  need Postgres           (`integrationTest`)
 ```
 
 `contractTest` is counted as one of the three now. It is aimon-core's 21-case `PeerMemory` contract
@@ -386,7 +386,7 @@ snapshot repository — where before it ran only on a machine that had published
 in a source set of its own because the artifact is a **snapshot rather than a release**, and that
 reason expires when aimon-core 0.3.0 ships.
 
-One of the 290 (`LoadTest`) runs only under `-Daimon.memory.load=true`. It is a measurement rather
+One of the 299 (`LoadTest`) runs only under `-Daimon.memory.load=true`. It is a measurement rather
 than a gate, and is counted as skipped.
 
 | Layer | Method | Gate |
