@@ -64,8 +64,9 @@ jobs:
         run: ./gradlew :aimon-memory-client:verifyCoreIsReleased --no-daemon
 
       # Central Portal, with the artifacts signed by an in-memory GPG key. Both come from
-      # aimon.publishable: `publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)` and
-      # `signAllPublications()`.
+      # aimon.publishable: `publishToMavenCentral()` and `signAllPublications()`. The call took a
+      # `SonatypeHost` until the plugin removed the enum in 0.34.0; the portal is now the only host
+      # it publishes to, so the destination is the same one and is no longer named.
       #
       # The five secrets below have to exist in the repository's settings before this workflow can
       # run. Their names on the left are what the vanniktech plugin reads (as Gradle properties, via

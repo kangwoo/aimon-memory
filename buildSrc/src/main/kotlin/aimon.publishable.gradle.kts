@@ -2,7 +2,6 @@ import com.vanniktech.maven.publish.JavaLibrary
 import com.vanniktech.maven.publish.JavaPlatform
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
-import com.vanniktech.maven.publish.SonatypeHost
 
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
@@ -12,7 +11,11 @@ plugins {
 }
 
 configure<MavenPublishBaseExtension> {
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    // No argument, and there is no longer one to give. `publishToMavenCentral` took a `SonatypeHost`
+    // up to 0.33.x — this build passed `CENTRAL_PORTAL` — and the plugin removed the enum in 0.34.0
+    // once OSSRH shut down and the portal became the only host it can publish to. The destination is
+    // unchanged; it is just no longer something a caller states.
+    publishToMavenCentral()
     signAllPublications()
 }
 
