@@ -68,6 +68,43 @@ public class ConclusionRepository implements ConclusionStore {
      */
     static final String NORM_LOOKUP = "md5(c.content_norm) = md5(?) AND c.content_norm = ?";
 
+    /**
+     * Document frequency, one row per term, as a constant so the index gate can EXPLAIN the statement
+     * that ships.
+     *
+     * <p><b>{@code LATERAL} rather than a {@code LEFT JOIN … GROUP BY}, and the reason is the plan.</b>
+     * With the tsquery in a join condition the match is a join clause, and the planner will only use
+     * {@code ix_concl_fts} for it through a parameterised inner path — which it discards whenever an
+     * unparameterised path over the same relation is cheaper, because it cannot see that keeping the
+     * parameterisation would remove the join filter. Measured on the integration tier's own schema
+     * with {@code enable_seqscan = off}, at both 200 and 5 200 live rows in one pair, {@code EXPLAIN}
+     * of the join form puts {@code to_tsvector(…) @@ to_tsquery(…)} in a <b>Join Filter</b> over a
+     * bitmap scan of the whole pair through {@code ix_concl_pair}, and never in an Index Cond — and
+     * the {@code plainto_tsquery} form this replaces plans identically, so that shape was not
+     * reaching the text index either. The same counts through {@code LATERAL} are a
+     * {@code Bitmap Index Scan on ix_concl_fts} with the tsquery <em>in</em> the Index Cond, at both
+     * scales. That the planner is leaving something on the table rather than costing it correctly is
+     * the {@code DROP INDEX ix_concl_pair} control: without the competing unparameterised path the
+     * join form plans through {@code ix_concl_fts} at a <em>lower</em> estimated cost than the plan it
+     * actually chose. Absolute estimates are not quoted here because they move with the seed corpus;
+     * the orderings above do not. A correlated scan cannot be dominated that way: the operand is an
+     * outer {@code Param}, so the tsquery is an ordinary scan qual.
+     *
+     * <p>{@code count(*)} over the empty set is 0, so a term that matches nothing still gets its row
+     * — the same as {@code count(c.id)} over a {@code LEFT JOIN}'s NULLs.
+     */
+    static final String DOCUMENT_FREQUENCY_SQL = """
+            SELECT t.term AS term, d.df AS df
+            FROM unnest(?, ?) AS t(term, q)
+            CROSS JOIN LATERAL (
+              SELECT count(*) AS df
+              FROM conclusions c
+              WHERE c.workspace_name = ? AND c.observer = ? AND c.observed = ?
+                AND c.deleted_at IS NULL AND (c.expires_at IS NULL OR c.expires_at > now())
+                AND to_tsvector('simple', c.content_analyzed) @@ to_tsquery('simple', t.q)
+            ) d
+            """;
+
     private final JdbcClient jdbc;
     private final EventLog events;
     private final CollectionRepository collections;
@@ -118,6 +155,10 @@ public class ConclusionRepository implements ConclusionStore {
      * BM25 arithmetic happens in Java. Splitting it that way is what makes this signal assertable to
      * six decimal places — {@code ts_rank_cd} has no fixed definition across server versions, and a
      * ranking test that a minor upgrade can break is not a ranking test.
+     *
+     * <p>The tsquery is a disjunction of quoted operands, one per analyzer token, and
+     * {@link #corpusStats(PairKey, List)} counts df with those same operands. The two statements
+     * therefore select over the same rows by construction, which they did not before.
      */
     @Override
     public List<ScoredConclusion> keyword(PairKey pair, String analyzed, int limit, Filter f) {
@@ -164,6 +205,39 @@ public class ConclusionRepository implements ConclusionStore {
      * <p>Public because fusion needs a keyword score for candidates the keyword path never returned:
      * a conclusion found semantically still has a real BM25 score, and scoring it zero would make the
      * ranking depend on which path happened to surface it first.
+     *
+     * <p><b>df is counted with the operand {@link TsQuery} would build for that term alone</b>, not
+     * with {@code plainto_tsquery} on the raw term. The two are not the same statement:
+     * {@code plainto_tsquery} joins a token's lexemes with {@code &} and {@code to_tsquery} joins
+     * them with {@code <->}, so every row holding both lexemes at non-adjacent positions used to
+     * count toward the document frequency of a term the candidate query could never match. Measured
+     * on the three-row corpus {@code alice's bank statement} / {@code alice's hiking notes} /
+     * {@code alice draws s curves}: {@code plainto_tsquery('simple','alice''s')} is
+     * {@code 'alice' & 's'} and gives df 3, where the keyword path matches 2 rows. The same statement
+     * now gives 2. The two arrays below are what makes that agreement structural rather than
+     * coincidental — the operand is built once, in Java, and passed beside its term.
+     *
+     * <p>Only a term the default parser splits into more than one lexeme is affected at all. Measured
+     * per term, {@code plainto_tsquery} against {@code to_tsquery} on the operand: {@code alice's},
+     * {@code 50,000}, {@code snake_case}, {@code foo-bar}, {@code note:draft} and {@code ג'ורג'} all
+     * differ; {@code e.g}, {@code 192.168.0.1}, {@code a@b.com} and any single-lexeme word do not.
+     * "Every punctuated token" would be the over-general form of that claim.
+     *
+     * <p><b>The residual, stated rather than hidden.</b> This makes df the candidate count, which is
+     * what the keyword query counts; it does not make df the number of rows {@code Bm25.score} gives
+     * a non-zero {@code tf}, because that arithmetic matches an exact whitespace token. On the corpus
+     * {@code note:draft about seoul} / {@code note draft regarding busan} / {@code draft note
+     * concerning tokyo} / {@code note without a draft nearby} the term {@code note:draft} measures df
+     * 4 before, df 2 now, and 1 row with {@code tf > 0}. The row {@code note draft regarding busan}
+     * is a genuine candidate of the keyword query that scores 0 — the same thing that happens to any
+     * candidate that matched on a different term of an OR. Counting the exact token instead
+     * ({@code t.term = ANY(string_to_array(c.content_analyzed, ' '))}) would make df agree with the
+     * arithmetic and disagree with the candidate set, and it cannot be an index condition: measured
+     * on the real schema at 200 and at 5 200 rows, in both the {@code LATERAL} and the join shape,
+     * that predicate is always a Filter or a Join Filter and the index serves only the pair scope, so
+     * it is evaluated once per live row in the pair. Its cost therefore grows with the pair, where
+     * the tsquery form's grows with the number of matching rows — that predicate reaches the Index
+     * Cond of a {@code Bitmap Index Scan on ix_concl_fts}.
      */
     public CorpusStats corpusStats(PairKey pair, List<String> terms) {
         Map<String, Object> totals = jdbc
@@ -177,19 +251,22 @@ public class ConclusionRepository implements ConclusionStore {
             return CorpusStats.empty();
         }
 
+        List<String> distinct = new ArrayList<>();
+        List<String> operands = new ArrayList<>();
+        for (String term : terms.stream().distinct().toList()) {
+            String operand = TsQuery.operand(term);
+            if (!operand.isEmpty()) {
+                distinct.add(term);
+                operands.add(operand);
+            }
+        }
         List<Object> params = new ArrayList<>();
-        params.add(terms.stream().distinct().toArray(String[]::new));
+        params.add(distinct.toArray(String[]::new));
+        params.add(operands.toArray(String[]::new));
         params.addAll(pairParams(pair));
         Map<String, Long> frequencies = new HashMap<>();
-        jdbc.sql("""
-                SELECT t.term AS term, count(c.id) AS df
-                FROM unnest(?) AS t(term)
-                LEFT JOIN conclusions c
-                  ON c.workspace_name = ? AND c.observer = ? AND c.observed = ?
-                 AND c.deleted_at IS NULL AND (c.expires_at IS NULL OR c.expires_at > now())
-                 AND to_tsvector('simple', c.content_analyzed) @@ plainto_tsquery('simple', t.term)
-                GROUP BY t.term
-                """).params(params).query((rs, i) -> Map.entry(rs.getString("term"), rs.getLong("df"))).list()
+        jdbc.sql(DOCUMENT_FREQUENCY_SQL).params(params)
+                .query((rs, i) -> Map.entry(rs.getString("term"), rs.getLong("df"))).list()
                 .forEach(entry -> frequencies.put(entry.getKey(), entry.getValue()));
         return new CorpusStats(documentCount, averageLength, frequencies);
     }

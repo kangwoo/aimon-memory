@@ -361,10 +361,10 @@ ADR 은 **명세에서 벗어난 자리**만 기록한다. 벗어나지 않은 �
 ### 관문
 
 ```
-615  tests, all green
-282  need no database        (`test`)          ┐
+623  tests, all green
+284  need no database        (`test`)          ┐
  21  aimon-core's suite      (`contractTest`)  ┘ the fast gate, `checkAll`
-312  need Postgres           (`integrationTest`)
+318  need Postgres           (`integrationTest`)
 ```
 
 `contractTest` 는 이제 셋 중 하나로 세어 둔다. aimon-core 의 `PeerMemory` 계약 스위트 21개이고, 그
@@ -372,7 +372,7 @@ ADR 은 **명세에서 벗어난 자리**만 기록한다. 벗어나지 않은 �
 도는 것이 아니다. 자기 소스셋에 있는 이유는 그것이 **릴리스가 아닌 스냅샷**이기 때문이고, 그 이유가
 사라지는 시점은 aimon-core 0.3.0 릴리스다.
 
-`integrationTest` 의 312개 중 하나(`LoadTest`)는 `-Daimon.memory.load=true` 로만 돈다. 관문이 아니라
+`integrationTest` 의 318개 중 하나(`LoadTest`)는 `-Daimon.memory.load=true` 로만 돈다. 관문이 아니라
 측정이라서 그렇고, 스킵으로 세어져 있다.
 
 | 계층 | 방법 | 관문 |

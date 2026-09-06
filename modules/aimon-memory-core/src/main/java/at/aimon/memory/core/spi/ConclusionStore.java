@@ -57,6 +57,10 @@ public interface ConclusionStore {
      * <p>Part of the contract because BM25 is computed in {@code aimon-memory-text} rather than in
      * the database — see {@code Bm25} for why — so a backend owes the counts even though it does not
      * do the scoring.
+     *
+     * <p>Counted over the rows {@link #keyword} would consider candidates for that term alone. A
+     * backend that counts something looser computes the IDF of one row set and ranks another, which
+     * is the defect this sentence exists to stop coming back.
      */
     CorpusStats corpusStats(PairKey pair, List<String> terms);
 

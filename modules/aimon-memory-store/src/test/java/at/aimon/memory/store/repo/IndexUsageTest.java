@@ -83,6 +83,30 @@ class IndexUsageTest extends StoreTestBase {
     }
 
     /**
+     * The document-frequency statement reaches the text index, EXPLAINed through the statement
+     * {@code corpusStats} actually runs.
+     *
+     * <p>It is on the recall path twice — once from {@code keyword} and once from
+     * {@code fillMissingKeyword} — and it was not covered here at all. Covering it is what showed
+     * that the {@code LEFT JOIN … GROUP BY} shape it used to have never reached this index: with the
+     * tsquery in a join condition the planner discards the parameterised index path whenever a plain
+     * scan of the pair is cheaper, and applies {@code to_tsvector(…) @@ to_tsquery(…)} as a join
+     * filter over every live row in the pair instead. That was true of the {@code plainto_tsquery}
+     * form too, so it is a defect this change inherited rather than one it introduced.
+     * {@link ConclusionRepository#DOCUMENT_FREQUENCY_SQL} says what the {@code LATERAL} buys and what
+     * it was measured at.
+     *
+     * <p>The two parallel arrays are bound with {@code setObject}, which the driver maps to an array
+     * parameter — verified against postgresql-42.7.13 for exactly this {@code unnest(?, ?)} shape, so
+     * neither {@code createArrayOf} nor a literal array in the SQL text is needed.
+     */
+    @Test
+    void documentFrequencyCountingReachesTheFullTextIndex() {
+        assertThat(Explain.plan(ConclusionRepository.DOCUMENT_FREQUENCY_SQL, new String[]{"marker7"},
+                new String[]{"'marker7'"}, WORKSPACE, "alice", "alice")).contains("ix_concl_fts");
+    }
+
+    /**
      * The partial indexes are the ones most easily lost. Each is declared {@code WHERE deleted_at IS
      * NULL}, and Postgres will only use it if the query's own predicate implies that — which it does
      * today because the live-row filter names the column outright. Rewriting that filter as anything
