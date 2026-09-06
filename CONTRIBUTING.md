@@ -31,7 +31,7 @@ docker compose up -d
 
 | 명령 | 무엇을 보는가 | Docker | 언제 돌리나 |
 |---|---|:-:|---|
-| `./gradlew checkAll` | 포맷·스타일·BOM, 데이터베이스가 필요 없는 254개 테스트, 그리고 계약 21개 | 불필요 | 저장할 때마다 |
+| `./gradlew checkAll` | 포맷·스타일·BOM, 데이터베이스가 필요 없는 256개 테스트, 그리고 계약 21개 | 불필요 | 저장할 때마다 |
 | `./gradlew integrationTest` | Testcontainers 계층 270개 | 필요 | PR 을 올리기 전에 |
 | `./gradlew :aimon-memory-client:contractTest` | aimon-core 의 `PeerMemory` 계약 21개 | 불필요 | `checkAll` 이 이미 부른다. 아래 참조 |
 | `./gradlew :aimon-memory-worker:loadTest` | 경합 상태의 동시 읽기·쓰기 | 필요 | 워커나 큐를 건드렸을 때 |

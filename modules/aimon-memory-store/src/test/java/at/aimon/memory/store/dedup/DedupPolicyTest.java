@@ -108,6 +108,33 @@ class DedupPolicyTest {
         assertThat(DEFAULTS.newReplacesExisting(List.of(), List.of())).isTrue();
     }
 
+    /**
+     * The class comment's own example, pinned so it cannot drift from the code again.
+     *
+     * <p>It drifted once. The example that stood there — "alice works in Gangnam, Seoul, and she works
+     * there" against "alice works in Gangnam, Seoul" — was offered as something length alone would get
+     * wrong, but every word the padding adds is also a new distinct token, so the weight funds the
+     * longer string instead of penalising it: 89 to 55 at the default, the opposite of the claim. The
+     * formula was right the whole time and only the prose was wrong, which is exactly the kind of
+     * error that survives a green build.
+     *
+     * <p>So the replacement example is asserted rather than described. A restatement has to actually
+     * repeat tokens to lose: ten tokens over five distinct ones score 60, six tokens that are all
+     * distinct score 66, and the specific phrasing survives — while at weight 0 the same pair goes the
+     * other way, 10 to 6, which is what the weight is buying.
+     */
+    @Test
+    void theExampleInTheClassCommentIsTheBehaviour() {
+        List<String> restated = List.of("alice", "works", "at", "a", "bank", "alice", "works", "at", "a", "bank");
+        List<String> specific = List.of("alice", "works", "at", "a", "gangnam", "bank");
+
+        assertThat(DEFAULTS.newReplacesExisting(restated, specific)).isFalse();
+        assertThat(DEFAULTS.newReplacesExisting(specific, restated)).isTrue();
+
+        DedupPolicy lengthOnly = new DedupPolicy(new DedupSettings(0.05, 0));
+        assertThat(lengthOnly.newReplacesExisting(restated, specific)).isTrue();
+    }
+
     @Test
     void theSettingsAreHandedBackUnchanged() {
         assertThat(DEFAULTS.settings()).isEqualTo(DedupSettings.DEFAULT);

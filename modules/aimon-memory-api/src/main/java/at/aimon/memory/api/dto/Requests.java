@@ -163,8 +163,38 @@ public final class Requests {
      * turn through turns a malformed request body into a server fault in the error-rate metric.
      *
      * <p>{@code role} is only checked for being present. Anything that is not {@code assistant} is read
-     * as a user turn, so {@code "banana"} is accepted and silently becomes one; narrowing that to an
-     * enumeration is a separate change from making the declared constraints run.
+     * as a user turn, so {@code "banana"} is accepted and silently becomes one. That was left as a
+     * separate question when the declared constraints were made to run; it has since been asked, and
+     * the answer is to keep it permissive.
+     *
+     * <p>What the coercion actually costs, measured rather than assumed. The blast radius is one
+     * answer: {@code history} is read in {@code ChatController.question}, trimmed in
+     * {@code DialecticService.requestFor} and sent as prompt messages. No path writes it, so a
+     * mis-rolled turn shapes a single reply and is not stored, not embedded and not derived from.
+     * A typo — {@code "assistnat"} — therefore hands the model its own previous answer as something
+     * the user said, which degrades that reply and nothing beyond it. How much it degrades it is not
+     * something this repository can measure: {@code AIMON_MEMORY_LLM_MODE} is {@code replay} in CI and
+     * no live provider was called for this.
+     *
+     * <p>Two facts decide it against an enumeration. {@link at.aimon.memory.core.spi.llm.Role} has
+     * exactly {@code USER} and {@code ASSISTANT} — there is no system role to reach, the system prompt
+     * being {@code Prompts.dialectic(...)} and server-side — so {@code "system"} has nowhere better to
+     * land than a user turn. An enumeration would 400 that request, and the only way for the caller to
+     * get an answer would be to relabel the turn {@code user}, which is what this coercion already
+     * does, one failed round trip earlier. And {@code docs/openapi.json} publishes {@code role} as
+     * {@code {"type": "string", "minLength": 1}} and has never said more, so an enumeration is a
+     * <em>new</em> promise that starts refusing requests which work today. By the standard
+     * {@code CreateConclusion} above sets, a new promise needs measured harm behind it; misattributing
+     * one turn of one prompt, unpersisted, is not that.
+     *
+     * <p>Accept-and-say-so is the third option, and it is not the same choice as an enumeration. A log
+     * line reaches an operator rather than the caller, so it does not close the gap that is actually
+     * open: {@code Dtos.ChatResponse} echoes text, iterations, the limit flag and the tool calls, never
+     * the history it answered against. Echoing the resolved roles there would close it, but it adds a
+     * field to a published schema for a fault the caller can already find by reading the request it
+     * sent. So the gap is closed in {@code docs/guide.md} rather than by a constraint or a field.
+     * Revisit if a system role ever becomes reachable, or if the coercion is ever shown to cost more
+     * than one reply.
      */
     public record ChatTurn(@NotBlank String role, @NotBlank String content) {
     }

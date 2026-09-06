@@ -19,6 +19,14 @@ public record DreamOutput(List<Item> conclusions) {
         conclusions = conclusions == null ? List.of() : List.copyOf(conclusions);
     }
 
+    /**
+     * {@code List.copyOf} rejects a null element here too, and for the reason worked out on
+     * {@code DerivedConclusions.Item}: these lists are only ever filled by
+     * {@code LlmClient.structured} under an explicit {@code ResponseFormat.strict(...)} whose array
+     * elements are typed, and constrained decoding cannot emit {@code null} where a string is
+     * required. {@code sourceIds} is the same shape as {@code entities} and inherits the same
+     * argument. Kept in one piece there rather than repeated; revisit both together.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(String content, List<String> sourceIds, List<String> entities, Double confidence) {
         public Item {
