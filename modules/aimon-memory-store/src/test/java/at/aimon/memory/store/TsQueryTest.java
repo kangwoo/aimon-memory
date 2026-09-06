@@ -10,24 +10,27 @@ import org.junit.jupiter.api.Test;
  * What reaches {@code to_tsquery}.
  *
  * <p>This builder sits between analyzer output and a Postgres parser that has opinions about
- * punctuation, and nothing tested it. The two things it promises are that terms are ORed — the whole
- * argument against {@code plainto_tsquery}, which ANDs and so turns a ranking problem into a filtering
- * one — and that no term can carry a tsquery operator into the statement.
+ * punctuation. The two things it promises are that terms are ORed — the whole argument against
+ * {@code plainto_tsquery}, which ANDs and so turns a ranking problem into a filtering one — and that
+ * every term is emitted as a quoted operand with both of the tsquery lexer's two special characters
+ * doubled, so that no term can carry an operator, an unterminated lexeme or a dangling escape into
+ * the statement.
  *
  * <p>These are the string shapes. That the shapes actually parse and actually match is a property of
  * a server rather than of this class, and lives in {@code KeywordPunctuationTest} against a real
- * Postgres.
+ * Postgres. The escaping is pinned on both sides on purpose: this tier runs with no Docker daemon,
+ * and a missing escape is exactly the kind of thing that should fail fast.
  */
 class TsQueryTest {
 
     @Test
     void termsAreOredSoOneMatchIsEnough() {
-        assertThat(TsQuery.orOf(List.of("alice", "bank", "seoul"))).isEqualTo("alice | bank | seoul");
+        assertThat(TsQuery.orOf(List.of("alice", "bank", "seoul"))).isEqualTo("'alice' | 'bank' | 'seoul'");
     }
 
     @Test
     void aSingleTermNeedsNoOperator() {
-        assertThat(TsQuery.orOf(List.of("alice"))).isEqualTo("alice");
+        assertThat(TsQuery.orOf(List.of("alice"))).isEqualTo("'alice'");
     }
 
     /** The caller checks for empty and skips the query entirely, so this is a contract, not a detail. */
@@ -37,165 +40,183 @@ class TsQueryTest {
     }
 
     /**
-     * Operator characters are stripped rather than escaped.
+     * Operator characters survive as literal text, which is the inversion this change is.
      *
-     * <p>Six of these seven forms no analyzer emits, which was run rather than assumed — all three
-     * analyzers in this build, over exactly these strings. The standard tokenizer breaks on
-     * {@code &}, {@code |}, {@code !}, brackets and {@code *}, and it strips the quotes off
-     * {@code 'j'}, which reaches here as {@code j} already; Nori and the bigram fallback break on all
-     * of them. (Only off <em>this</em> shape — a quote is not always dropped by analysis, which
-     * {@link #aQuoteWithoutAnAlphanumericOnBothSidesIsDropped} says more about.) {@code g:h} is the
-     * exception — a word-internal colon survives standard analysis intact — which is why it gets a
-     * test of its own.
-     *
-     * <p>The point is that a term can never contribute an operator to the assembled query. {@code &}
-     * and {@code !} would change the query from a union into an intersection or a negation, which is
-     * the failure that matters — not a syntax error, but a silently different set of rows.
+     * <p>Every one of these seven used to be rewritten — {@code a&b} to {@code ab}, {@code !e} to
+     * {@code e}, {@code g:h} to {@code gh} — and the rewrite is what cost the match, because the
+     * document side keeps what the analyzer produced. Quoted, none of them is an operator: measured
+     * on Postgres 16, all 33 non-alphanumeric printable ASCII characters as {@code a<c>b} parse
+     * without error and match the document they were analysed from, where the stripped form matched
+     * in 5 of the 33. The enumeration is {@code KeywordPunctuationTest.everyPrintableAsciiCharacter…}
+     * against the server; what is pinned here is that this class stops deleting.
      */
     @Test
-    void operatorCharactersCannotSurviveIntoTheQuery() {
+    void operatorCharactersSurviveAsLiteralText() {
         assertThat(TsQuery.orOf(List.of("a&b", "c|d", "!e", "(f)", "g:h", "i*", "'j'")))
-                .isEqualTo("ab | cd | e | f | gh | i | j");
+                .isEqualTo("'a&b' | 'c|d' | '!e' | '(f)' | 'g:h' | 'i*' | '''j'''");
     }
 
     /**
-     * Word-internal punctuation a real token can carry is kept.
+     * Word-internal punctuation a real token can carry is untouched by quoting.
      *
      * <p>Kept knowing what {@code to_tsquery} then does with it, which is not obvious: measured on
-     * Postgres 16, {@code co-op} parses to {@code 'co-op' <-> 'co' <-> 'op'} and {@code snake_case} to
-     * {@code 'snake' <-> 'case'} — a phrase operator, an AND that also fixes the order, inside a
+     * Postgres 16, {@code 'co-op'} parses to {@code 'co-op' <-> 'co' <-> 'op'} and {@code 'snake_case'}
+     * to {@code 'snake' <-> 'case'} — a phrase operator, an AND that also fixes the order, inside a
      * builder whose entire purpose is to avoid ANDing. It is still correct, because
-     * {@code to_tsvector} splits the document the same way and the parts land at adjacent positions;
-     * each of these matches a document containing it, and the {@code |} between terms is unaffected.
-     * The reasoning and the numbers are on {@link TsQuery}. Pinned here so that a future sanitiser
-     * that drops these characters has to argue with a failing test first.
+     * {@code to_tsvector} splits the document the same way and the parts land at adjacent positions.
+     * Quoting changes none of it: over all 1 606 strings of length ≤4 from {@code {a 1 _ - . , '}}
+     * that the old sanitiser passed through unchanged, quoted and bare parse identically — 0
+     * differences, 0 errors either way. The reasoning and the numbers are on {@link TsQuery}.
      */
     @Test
     void underscoresHyphensAndDotsAreKept() {
-        assertThat(TsQuery.orOf(List.of("snake_case", "co-op", "e.g"))).isEqualTo("snake_case | co-op | e.g");
+        assertThat(TsQuery.orOf(List.of("snake_case", "co-op", "e.g"))).isEqualTo("'snake_case' | 'co-op' | 'e.g'");
     }
 
     /**
-     * The possessive and the grouped number keep their punctuation, which is the fix.
+     * The possessive and the grouped number keep their punctuation, as they did before this change.
      *
      * <p>Lucene's standard tokenizer hands back {@code alice's} and {@code 50,000} as single tokens,
-     * so each lands in {@code content_analyzed} and in the query terms alike. Stripping them to
-     * {@code alices} and {@code 50000} made every English possessive, every contraction and every
-     * grouped number contribute no keyword candidates at all — measured on Postgres 16 over a
-     * three-row corpus, 0 rows where the unstripped form finds 2, for both. Kept now: the stripping
-     * bought nothing, because neither character is a tsquery operator in this position.
-     * {@code to_tsquery('simple', 'alice''s | bank')} is {@code 'alice' <-> 's' | 'bank'} and
-     * {@code to_tsquery('simple', 'alice | 50,000')} is {@code 'alice' | '50' <-> '000'}, and the
-     * document side splits identically, so the phrase matches the text it was analysed from.
+     * so each lands in {@code content_analyzed} and in the query terms alike. Both survived the
+     * allowlist and both survive quoting, and the quoted form is the same query the bare form was:
+     * {@code 'alice''s'} and {@code alice's} both parse to {@code 'alice' <-> 's'}, measured. What
+     * changes is the escape — the apostrophe is now doubled rather than passed through — and that is
+     * what the second half of each assertion pins.
+     *
+     * <p>The curly apostrophe is the one that did not survive the allowlist, and it is the likelier
+     * of the two in real text. {@code U+2019} is not a letter or a digit, so {@code don’t} was sent
+     * as {@code dont} and matched nothing; it is not a tsquery operator either, so the operand does
+     * not double it and the parser reads it as literal text. The last assertion pins that
+     * distinction: the ASCII quote is escaped, the curly one is carried through untouched.
      */
     @Test
     void possessivesAndGroupedNumbersKeepTheirPunctuation() {
-        assertThat(TsQuery.orOf(List.of("alice's", "bank"))).isEqualTo("alice's | bank");
-        assertThat(TsQuery.orOf(List.of("don't"))).isEqualTo("don't");
-        assertThat(TsQuery.orOf(List.of("50,000", "won"))).isEqualTo("50,000 | won");
-        // A comma is kept wherever it falls, so the two rules compose without a special case.
-        assertThat(TsQuery.orOf(List.of("50,000's"))).isEqualTo("50,000's");
+        assertThat(TsQuery.orOf(List.of("alice's", "bank"))).isEqualTo("'alice''s' | 'bank'");
+        assertThat(TsQuery.orOf(List.of("don't"))).isEqualTo("'don''t'");
+        assertThat(TsQuery.orOf(List.of("50,000", "won"))).isEqualTo("'50,000' | 'won'");
+        assertThat(TsQuery.orOf(List.of("50,000's"))).isEqualTo("'50,000''s'");
+        assertThat(TsQuery.orOf(List.of("don\u2019t"))).isEqualTo("'don\u2019t'");
     }
 
     /**
-     * A quote is kept only with an alphanumeric on both sides, and that condition is the safety
-     * property rather than a tidiness one.
+     * A quote is doubled wherever it falls, and its position no longer decides whether it survives.
      *
-     * <p>Bare, a quote opens a quoted lexeme that never closes, and the statement dies rather than
-     * ranking badly: on Postgres 16 {@code to_tsquery('simple', '''foo')} is
-     * {@code ERROR: syntax error in tsquery}, and so is {@code 'bank | ''foo | seoul'} — one bad term
-     * takes the whole recall down, not just its own operand. Requiring an alphanumeric on each side
-     * excludes every one of these, and because an alphanumeric is itself always kept, a surviving
-     * quote is still flanked by one in the output: the result can never begin with a quote, end with
-     * one, or hold two in a row.
+     * <p>The old rule kept a quote only between two alphanumerics, because bare it opened a quoted
+     * lexeme that never closed and took the whole statement down. Inside an operand that hazard does
+     * not exist: the lexeme is opened deliberately and every quote in the body is doubled, so the
+     * only quotes the parser reads as syntax are the two this class put there. Measured on Postgres
+     * 16, all five of these parse — {@code '''foo'} and {@code 'foo'''} are {@code 'foo'},
+     * {@code 'a''''b'} is {@code 'a' <-> 'b'}, and {@code ''''} is an empty tsquery with a NOTICE and
+     * no error — against 24 rejections out of 84 fuzz strings if the doubling is removed.
      *
-     * <p>No analyzer in this build hands back any of these five strings — all three reduce
-     * {@code 'foo}, {@code foo'}, {@code ''} and {@code '} to a quote-free token or to nothing, and
-     * {@code a''b} to {@code a} and {@code b}. One of the <em>shapes</em> is another matter: a quote
-     * after a Hebrew letter survives standard analysis, so a token ending in one does reach
-     * {@code orOf}, and the second assertion is the rule that handles it. Dropping that quote costs
-     * no match, which is measured against the server in
-     * {@code KeywordPunctuationTest.aTrailingQuoteFromTheAnalyzerCostsNoMatchWhenDropped} rather than
-     * assumed here — "the analyzer never emits a quote outside a word" has been written in this
-     * change three times and been wrong every time. What makes these five worth pinning is not that
-     * they are unreachable but that {@code orOf} is public and the cost of being wrong is a failed
-     * statement rather than a worse ranking.
+     * <p>So the apostrophe is position-dependent in what this change does to it: already surviving
+     * between two alphanumerics, newly surviving bare, leading, trailing and doubled.
      */
     @Test
-    void aQuoteWithoutAnAlphanumericOnBothSidesIsDropped() {
-        assertThat(TsQuery.orOf(List.of("'foo"))).isEqualTo("foo");
-        assertThat(TsQuery.orOf(List.of("foo'"))).isEqualTo("foo");
-        assertThat(TsQuery.orOf(List.of("a''b"))).isEqualTo("ab");
-        assertThat(TsQuery.orOf(List.of("''"))).isEmpty();
-        assertThat(TsQuery.orOf(List.of("'"))).isEmpty();
-        // Word-internal is the one form that survives, including next to a non-Latin letter.
-        assertThat(TsQuery.orOf(List.of("a'b", "한글's"))).isEqualTo("a'b | 한글's");
-        // The neighbours are read on the term as it arrived, not on what has been appended so far:
-        // the character between these quotes is dropped, so the quotes separate nothing and go too.
-        assertThat(TsQuery.orOf(List.of("a'&'b"))).isEqualTo("ab");
-        assertThat(TsQuery.orOf(List.of("a':b"))).isEqualTo("ab");
+    void aQuoteIsDoubledInEveryPosition() {
+        assertThat(TsQuery.orOf(List.of("'foo"))).isEqualTo("'''foo'");
+        assertThat(TsQuery.orOf(List.of("foo'"))).isEqualTo("'foo'''");
+        assertThat(TsQuery.orOf(List.of("a''b"))).isEqualTo("'a''''b'");
+        assertThat(TsQuery.orOf(List.of("''"))).isEqualTo("''''''");
+        assertThat(TsQuery.orOf(List.of("'"))).isEqualTo("''''");
+        assertThat(TsQuery.orOf(List.of("a'b", "한글's"))).isEqualTo("'a''b' | '한글''s'");
+        // The geresh: one token out of the standard tokenizer, quote and all, and now kept whole.
+        assertThat(TsQuery.orOf(List.of("ג'ורג'"))).isEqualTo("'ג''ורג'''");
     }
 
     /**
-     * The colon is the one of the three that stays stripped, and it costs a match to do it.
+     * A backslash is doubled too, and it is the escape a reader is most likely to think unnecessary.
      *
-     * <p>It is a real operator — weight and prefix — so a term carrying one is a failed statement
-     * rather than a poor one: {@code to_tsquery('simple', 'g:h')} and
-     * {@code to_tsquery('simple', 'a | g:h')} are both {@code ERROR: syntax error in tsquery} on
-     * Postgres 16. The positional rule that rescues the apostrophe cannot rescue this: {@code g:h}
-     * already has an alphanumeric on both sides. The only recovery is to quote the operand, and that
-     * is a change to how every term is emitted rather than a character in an allowlist — measured, it
-     * does work ({@code to_tsquery('simple', '''note:draft''')} is {@code 'note' <-> 'draft'} and
-     * matches {@code to_tsvector('simple', 'note:draft here')}, where {@code notedraft} matches
-     * nothing), so this is a deliberate deferral and not an impossibility. Pinned so the cost stays
-     * on record.
+     * <p>Inside a quoted lexeme {@code \} escapes whatever follows it, so a term ending in one eats
+     * the closing quote and the statement dies: {@code 'foo\' | 'bank'} is
+     * {@code ERROR: syntax error in tsquery} where {@code 'foo\\' | 'bank'} is
+     * {@code 'foo' | 'bank'}. Measured over the same 84 strings, dropping this escape alone costs 38
+     * rejections — more than dropping the quote escape does. The server side of it is
+     * {@code KeywordPunctuationTest.aBackslashIsEscapedOrTheStatementDies}.
      */
     @Test
-    void aWordInternalColonIsStillStripped() {
-        assertThat(TsQuery.orOf(List.of("note:draft"))).isEqualTo("notedraft");
-        assertThat(TsQuery.orOf(List.of("alice's", "note:draft", "50,000"))).isEqualTo("alice's | notedraft | 50,000");
+    void aBackslashIsDoubled() {
+        assertThat(TsQuery.orOf(List.of("foo\\"))).isEqualTo("'foo\\\\'");
+        assertThat(TsQuery.orOf(List.of("C:\\Users\\x"))).isEqualTo("'C:\\\\Users\\\\x'");
+        assertThat(TsQuery.orOf(List.of("\\"))).isEqualTo("'\\\\'");
+    }
+
+    /**
+     * The colon is no longer stripped, and that is the defect this change exists to fix.
+     *
+     * <p>{@code note:draft} is one token out of Lucene's standard tokenizer, so it lands in
+     * {@code content_analyzed} and in the query terms alike. Bare it cannot be sent — a colon is the
+     * weight and prefix operator, and {@code to_tsquery('simple','note:draft')} is
+     * {@code ERROR: syntax error in tsquery} — so the allowlist deleted it and sent
+     * {@code notedraft}, which matches nothing. Quoted it is literal text:
+     * {@code to_tsquery('simple','''note:draft''')} is {@code 'note' <-> 'draft'} and does match the
+     * document, which {@code KeywordPunctuationTest.aWordInternalColonMatchesItsOwnDocument} runs.
+     */
+    @Test
+    void aWordInternalColonIsKept() {
+        assertThat(TsQuery.orOf(List.of("note:draft"))).isEqualTo("'note:draft'");
+        assertThat(TsQuery.orOf(List.of("alice's", "note:draft", "50,000")))
+                .isEqualTo("'alice''s' | 'note:draft' | '50,000'");
+    }
+
+    /**
+     * Combining marks and supplementary-plane code points reach the server intact.
+     *
+     * <p>The old loop walked {@code char} and kept {@code Character.isLetterOrDigit(c)}, which is
+     * false for every combining mark and for both halves of a surrogate pair. {@code नमस्ते} was sent
+     * as {@code नमसत} and {@code 𠀀} as the empty string — dropped from the query entirely — while
+     * both analyzers emit each of them whole. Nothing here decides whether a term is worth sending;
+     * that judgement is the server's, and {@code 😀} is why (see {@link TsQuery}).
+     */
+    @Test
+    void combiningMarksAndSupplementaryCodePointsSurvive() {
+        assertThat(TsQuery.orOf(List.of("नमस्ते"))).isEqualTo("'नमस्ते'");
+        assertThat(TsQuery.orOf(List.of("𠀀"))).isEqualTo("'𠀀'");
+        assertThat(TsQuery.orOf(List.of("😀"))).isEqualTo("'😀'");
     }
 
     @Test
     void nonLatinTermsSurviveIntact() {
-        assertThat(TsQuery.orOf(List.of("서울", "강남"))).isEqualTo("서울 | 강남");
+        assertThat(TsQuery.orOf(List.of("서울", "강남"))).isEqualTo("'서울' | '강남'");
     }
 
     /**
-     * Duplicates are dropped, so a repeated term does not appear twice in the query.
+     * Duplicates are dropped on the raw term, which is where they now come from.
      *
-     * <p>It would be harmless to {@code to_tsquery} and merely noisy in a log — but sanitising can
-     * also *create* duplicates out of terms that differed only in stripped punctuation, which is the
-     * case worth pinning.
+     * <p>Sanitising used to *create* duplicates out of terms that differed only in stripped
+     * punctuation, so {@code ["alice","alice!","(alice)"]} collapsed to one operand. It no longer
+     * does, and the three are sent as three: {@code to_tsquery} does not collapse duplicate operands
+     * either (measured), so the server parses that to {@code 'alice' | 'alice' | 'alice'} — the same
+     * rows, a longer string, and a {@code ts_rank_cd} unchanged by the repetition. Dropping a
+     * genuinely repeated term is still worth doing, because the analyzer emits one per occurrence.
      */
     @Test
-    void duplicatesAreCollapsedIncludingOnesSanitisingCreated() {
-        assertThat(TsQuery.orOf(List.of("alice", "alice"))).isEqualTo("alice");
-        assertThat(TsQuery.orOf(List.of("alice", "alice!", "(alice)"))).isEqualTo("alice");
+    void duplicatesAreCollapsedOnTheRawTerm() {
+        assertThat(TsQuery.orOf(List.of("alice", "alice"))).isEqualTo("'alice'");
+        assertThat(TsQuery.orOf(List.of("alice", "alice!", "(alice)"))).isEqualTo("'alice' | 'alice!' | '(alice)'");
     }
 
     /**
-     * A term with nothing left after sanitising is dropped rather than joined as an empty operand.
+     * An empty term is skipped, because {@code ''} is the one operand that fails the statement.
      *
-     * <p>Verified against a real Postgres 16 that {@code to_tsquery('simple', '- | foo')} is not an
-     * error: the operand with no lexeme in it is dropped and the result is {@code 'foo'}, silently.
-     * The "contains only stop words or doesn't contain lexemes" NOTICE that was claimed here fires
-     * only when nothing at all survives — {@code to_tsquery('simple', '-')}, which returns an empty
-     * tsquery. Either way a term that sanitises to punctuation is not a correctness problem, and
-     * dropping the empty ones is what keeps the assembled string readable in a log and free of
-     * dangling separators.
+     * <p>Measured on Postgres 16: {@code to_tsquery('simple','''''')} is
+     * {@code ERROR: syntax error in tsquery}, alone and inside an OR chain
+     * ({@code 'alice' | '' | 'bank'} is the same error). Everything else this class can emit parses,
+     * which is the invariant {@link TsQuery#orOf(List)} states — so the empty check is not tidiness,
+     * it is the whole of the difference between a query and a 500.
      *
-     * <p>A comma-only term is no longer one of the dropped ones, which is the visible cost of
-     * allowlisting the character unconditionally. It joins {@code -}, {@code .} and {@code _} as an
-     * operand with no lexeme in it, and Postgres treats it the same way: {@code 'foo | ,,, | bar'} is
-     * {@code 'foo' | 'bar'}, and {@code ','} alone is an empty tsquery with a NOTICE and no error. No
-     * analyzer in this build emits such a token — all three drop a lone comma — so this is a shape
-     * the sanitiser permits rather than one production produces.
+     * <p>A term that is all operators is no longer dropped: {@code ["()","!!"]} used to sanitise to
+     * nothing and make {@code keyword()} return early. It is now sent, and the server drops it —
+     * {@code '()' | '!!'} is an empty tsquery with a NOTICE and no error, so it matches nothing and
+     * costs one round trip. Deciding that in Java would mean predicting which operands yield lexemes,
+     * which is the claim {@link TsQuery} shows would be wrong.
      */
     @Test
-    void termsThatSanitiseToNothingAreDropped() {
-        assertThat(TsQuery.orOf(List.of("alice", "&&&", "bank"))).isEqualTo("alice | bank");
-        assertThat(TsQuery.orOf(List.of("()", "!!"))).isEmpty();
-        assertThat(TsQuery.orOf(List.of("alice", ",,,", "bank"))).isEqualTo("alice | ,,, | bank");
+    void anEmptyTermIsSkippedAndAnAllOperatorTermIsNot() {
+        assertThat(TsQuery.orOf(List.of("alice", "", "bank"))).isEqualTo("'alice' | 'bank'");
+        assertThat(TsQuery.operand("")).isEmpty();
+        assertThat(TsQuery.operand(null)).isEmpty();
+        assertThat(TsQuery.orOf(List.of("()", "!!"))).isEqualTo("'()' | '!!'");
+        assertThat(TsQuery.orOf(List.of("alice", ",,,", "bank"))).isEqualTo("'alice' | ',,,' | 'bank'");
     }
 }

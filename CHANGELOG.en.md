@@ -488,6 +488,62 @@ first release goes out.
   limit on any corpus, so **no body this API accepts** reaches it — though the deriver and the dreamer
   do not pass through that cap.
 
+  **The rule described in this entry is superseded by the one below.** As of the release, `:` is no
+  longer stripped, `note:draft` does find its own document, and the apostrophe is kept in every
+  position. The paragraphs above are the intermediate step this repository took from an allowlist to
+  operand quoting, and the record of what survived it and why.
+- **Keyword query terms are quoted rather than stripped, so a token carrying punctuation, a combining
+  mark or a supplementary-plane code point finds its own document again.** `TsQuery` deleted every
+  character the tsquery grammar could read as an operator, and deleting is what cost the match: both
+  sides of the index are output of the same analyzer, so a rewritten term no longer matches the
+  document it was analysed from. `note:draft` went to the server as `notedraft` against a tsvector of
+  `'note':1 'draft':2`. Every term is now wrapped in `'…'` with the quote and the backslash doubled —
+  the only two characters that mean anything inside a quoted lexeme. Measured on Postgres 16.15: all
+  33 non-alphanumeric characters in `32..126`, as `a<c>b`, parse and match the document they were
+  analysed from, where the old rule matched in 5 of the 33; so do all 32 control characters.
+
+  **The larger half is the one nobody had counted.** The old loop walked `char` and tested
+  `Character.isLetterOrDigit`, which is false for every combining mark — Devanagari virama, Thai
+  vowel sign, Hebrew niqqud, Arabic harakat, NFD accent — and for both halves of a surrogate pair.
+  `नमस्ते` was sent as `नमसत` and `𠀀` as the empty string, dropped from the query altogether, while
+  both analyzers emit each token whole. Those queries matched **nothing**. They match now. There is
+  exactly one shape **within printable ASCII** that goes the other way: a **leading `~`**, where the
+  quoted operand fails to match a row the stripped form found. Comparing old match against new match
+  for `1..127` in four positions — bare, leading, trailing, word-internal — gives 0 regressions bare,
+  0 trailing and 0 word-internal (60 gains there), and exactly 1 leading: `~`. It is unreachable from
+  this build, since all three analyzers return `[b]` for `~b`, and it costs a row rather than the
+  statement. Outside ASCII there is one more loss in the same direction, wherever a term's
+  mark-stripped form happened to appear in some document: NFD `café` used to go out as `cafe`, which
+  **matched** a row reading `cafe latte`, and the operand `'café'` does not. The same measurement
+  shows the trade — the stripped form did not match the row the token was analysed from, and the
+  operand does. These were accidental matches on a spelling the query never used.
+
+  **The curly apostrophe (`U+2019`) is newly surviving too, and that one is common rather than
+  exotic.** The standard tokenizer keeps it inside a word exactly as it keeps the ASCII apostrophe,
+  so `don’t` is a single token. The old rule sent `dont` and matched nothing; the operand `'don’t'`
+  parses to `'don' <-> 't'` and matches.
+
+- **`corpusStats` counted document frequency over a strictly larger row set than the keyword path
+  ranked.** df came from `plainto_tsquery`, which joins a token's lexemes with `&`, while the
+  candidate query joins them with `<->`: a row holding both lexemes at non-adjacent positions counted
+  toward df without ever being a candidate — df 3 against 2 matching rows on a three-row corpus. df
+  is now counted with the same operand `TsQuery` builds. Only a token the parser splits into more
+  than one lexeme is affected: `alice's`, `50,000`, `snake_case`, `foo-bar` and `note:draft` change,
+  while `e.g`, `192.168.0.1`, `a@b.com` and any single-lexeme word were already identical.
+
+  **Every BM25 score for a multi-lexeme term moves.** df falls, so IDF rises: `idf(3,3) = 0.133531`
+  becomes `idf(3,2) = 0.470004` on that corpus, and at N=1000 with df 300 → 200, `1.203307` becomes
+  `1.607941`. A single-term query cannot reorder — the term's contribution is rescaled by the same
+  factor for every document — but a multi-term query can, because the terms' relative weights move
+  and `KeywordSignal.normalise` is a logistic curve rather than a scale-invariant one. The golden
+  fixtures and the ranking baseline did not move, and the reason was measured rather than assumed:
+  all 180 distinct Nori tokens the eval corpus and its queries produce are alphanumeric throughout,
+  so both halves of this change are no-ops on that corpus.
+
+  **No previously rejected request is now accepted, and no error code changed.** `TsQuery.orOf` is
+  public API of a published module and its output string changes — `orOf(["alice"])` is now
+  `'alice'`.
+
 ### Security
 
 - The JWT signing key has no default. Blank, or shorter than 32 bytes, and startup fails. A
