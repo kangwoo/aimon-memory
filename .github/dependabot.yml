@@ -28,6 +28,19 @@ updates:
       # 계약 스위트가 함께 봐야 한다. 사람이 판단한다.
       - dependency-name: "at.aimon.core:*"
 
+      # springdoc 3.x 는 Spring Boot 4 를 대상으로 빌드된다 — `spring-boot-webmvc` 와
+      # `spring-boot-health` 를 의존하는데, 이 빌드의 Boot 3.5 클래스패스에는 그 모듈이 없다.
+      # PR #2 (2.9.0 → 3.1.0) 가 그것을 실제로 보여줬다: 컴파일도 fast gate 도 통과하고,
+      # integration 에서 ApplicationContext 가 뜨지 않으면서 15개가
+      # `ApplicationServletEnvironment` NoClassDefFoundError 로 무너졌다. 조용히 통과할 수
+      # 있는 종류의 실패가 아니라는 뜻이기도 하다.
+      #
+      # 막는 것은 major 뿐이다. 2.x 안의 갱신은 계속 받는다. Boot 4 로 올릴 때 이 항목을 지우고,
+      # gradle/libs.versions.toml 의 springdoc 주석도 같이 지운다 — 그 주석이 이미 같은 말을
+      # 하고 있고("this version moves when `springBoot` does and not before"), 둘은 함께 움직인다.
+      - dependency-name: "org.springdoc:*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: gradle
     directory: "/buildSrc"
     schedule:
