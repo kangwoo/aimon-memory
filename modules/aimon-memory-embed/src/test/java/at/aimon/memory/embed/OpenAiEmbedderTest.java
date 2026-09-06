@@ -127,6 +127,26 @@ class OpenAiEmbedderTest {
         }
     }
 
+    /**
+     * The provider's error body stays out of the message.
+     *
+     * <p>{@code EmbeddingException} is a {@code MemoryException}, so its message is copied verbatim
+     * into the 500 body. The embedding provider's body is not the caller's text — an OpenAI 401 quotes
+     * the configured key back with only its middle masked — and it was being appended to the status
+     * code. The status code itself stays: it is what tells a caller whether to retry.
+     */
+    @Test
+    void doesNotCopyTheProviderErrorBodyIntoTheMessage() throws IOException {
+        String secret = "sk-proj-abc123SECRETxyz";
+        try (var server = new FakeEmbeddingServer(
+                request -> FakeEmbeddingServer.Response.error(401, "Incorrect API key provided: " + secret))) {
+            assertThatThrownBy(
+                    () -> new OpenAiEmbedder(properties(server.baseUrl(), 96, 1)).embed("hello", EmbedPurpose.DOCUMENT))
+                    .isInstanceOf(EmbeddingException.class).hasMessageNotContaining(secret)
+                    .hasMessage("embedding request failed: HTTP 401");
+        }
+    }
+
     /** One poisonous input should cost one embedding, not the whole slice of ninety-six. */
     @Test
     void fallsBackToIndividualCallsWhenABatchFails() throws IOException {

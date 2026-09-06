@@ -13,6 +13,8 @@ import org.apache.lucene.analysis.ko.KoreanPartOfSpeechStopFilter;
 import org.apache.lucene.analysis.ko.KoreanTokenizer;
 import org.apache.lucene.analysis.ko.POS;
 import org.apache.lucene.analysis.ko.dict.UserDictionary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.spi.Analyzer;
@@ -28,6 +30,8 @@ import at.aimon.memory.core.spi.Analyzer;
  * in from the start rather than retrofitted.
  */
 public final class KoreanTextAnalyzer implements Analyzer, AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(KoreanTextAnalyzer.class);
 
     /** Nori's own default: particles, endings, punctuation — the tags that carry no retrieval signal. */
     private static final Set<POS.Tag> STOP_TAGS = KoreanPartOfSpeechStopFilter.DEFAULT_STOP_TAGS;
@@ -54,7 +58,13 @@ public final class KoreanTextAnalyzer implements Analyzer, AutoCloseable {
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             return UserDictionary.open(reader);
         } catch (IOException e) {
-            throw new MemoryException("bad_user_dictionary", "cannot read Nori user dictionary: " + path, e);
+            // The path is logged, not returned. `AnalyzerRegistry` builds this lazily — on the first
+            // request that touches a workspace whose `language` is `ko` — so a misconfigured
+            // dictionary is answered to that caller as a 500, and `MemoryException`'s message is
+            // copied into the body. That handed a server filesystem path to whoever asked first.
+            log.error("cannot read Nori user dictionary {}", path, e);
+            throw new MemoryException("bad_user_dictionary",
+                    "the configured Nori user dictionary could not be read; see the server log", e);
         }
     }
 

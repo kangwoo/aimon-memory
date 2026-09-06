@@ -96,6 +96,36 @@ Everything that changes a conclusion writes an event. The dreamer edits memory w
 and without that log there is no answer to "where did this come from" about a belief no human ever
 stated.
 
+### Error responses do not carry stored values
+
+A 4xx or 422 body quotes the request — those are values the caller just sent, so nothing new escapes,
+and quoting them is the whole point. **A 5xx may repeat what the caller sent — `store_failed` names
+the entity or session that was asked for — and nothing besides.** So an unparseable jsonb column, a
+model provider's response body, a model's output, the prompt this build assembles, and server file
+paths do not go into the response body; they go to the server log. The body keeps `code`, and for a
+provider error the status code it answered with.
+
+Three cases in particular. One is **what the response DTOs deliberately leave out** —
+`internal_metadata` is on no response at all, yet a 500 was handing the whole column back when it
+failed to parse. The second is **credential traces** — an OpenAI 401 body quotes the configured API
+key back with only its middle masked, and that body was being copied into the 500. The third is the
+**assembled prompt**: `FixtureMissException` is a test-harness diagnostic that inlines the whole
+canonical request and the fixtures directory, and replay is not opt-in — `AIMON_MEMORY_LLM_MODE`
+defaults to `replay` and `MemoryConfiguration` wraps every configured provider in
+`RecordingChatBackend` — so a deployment that sets a provider but not the mode answered every model
+call with that 503. The body is now the code alone — on that 5xx, and on the 200 that lists failed
+dreams. `ApiExceptionHandler` is not the only place an exception message is copied towards a caller:
+`dreams.error` is a column `Dtos.DreamResponse` returns in a 200, so a rule enforced only at the 5xx
+boundary is a rule with a second way out. The split therefore lives on the exception itself
+(`MemoryException.publicMessage`), and every site that copies a message uses it.
+
+> Setting a provider and leaving `AIMON_MEMORY_LLM_MODE` unset is a **misconfiguration**, not a
+> supported deployment: the service will serve nothing but `fixture_miss`. Set the mode explicitly.
+
+`ErrorBodyLeakTest` and `FixtureMissBodyTest` (API) and `ProviderErrorLeakTest` and
+`ReplayHarnessTest` (LLM) pin the rule. If you find a value in any response body that you never sent,
+that is a vulnerability in the sense this document means.
+
 ### Credentials and model calls
 
 - Provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are read from the environment only. There are

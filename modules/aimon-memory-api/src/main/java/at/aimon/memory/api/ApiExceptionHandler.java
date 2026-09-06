@@ -32,6 +32,14 @@ import at.aimon.memory.core.filter.FilterException;
  * predicate is the problem. Returning 200 with no rows — the tempting alternative — is how a caller
  * concludes there is no data when in fact their query was thrown away.
  */
+/*
+ * Every handler below reads `publicMessage()`, never `getMessage()`. For all but one exception the
+ * two are the same string, because a message is written for whoever made the request. The exception
+ * is `FixtureMissException`, whose message is a diagnostic for a developer reading a failed
+ * `./gradlew test` and inlines the assembled prompt and an absolute server path — see
+ * `MemoryException.publicMessage`, which is where the split lives, because this class is not the only
+ * place a message is copied towards a caller. The ERROR line in `memory` still logs the whole thing.
+ */
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
@@ -39,7 +47,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(FilterException.class)
     public ResponseEntity<Dtos.ErrorResponse> filter(FilterException e) {
-        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.getMessage());
+        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.publicMessage());
     }
 
     /**
@@ -50,27 +58,27 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(ConfigurationException.class)
     public ResponseEntity<Dtos.ErrorResponse> configuration(ConfigurationException e) {
-        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.getMessage());
+        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<Dtos.ErrorResponse> unauthorized(UnauthorizedException e) {
-        return body(HttpStatus.UNAUTHORIZED, e.code(), e.getMessage());
+        return body(HttpStatus.UNAUTHORIZED, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(ForbiddenException.class)
     public ResponseEntity<Dtos.ErrorResponse> forbidden(ForbiddenException e) {
-        return body(HttpStatus.FORBIDDEN, e.code(), e.getMessage());
+        return body(HttpStatus.FORBIDDEN, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<Dtos.ErrorResponse> notFound(NotFoundException e) {
-        return body(HttpStatus.NOT_FOUND, e.code(), e.getMessage());
+        return body(HttpStatus.NOT_FOUND, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<Dtos.ErrorResponse> conflict(ConflictException e) {
-        return body(HttpStatus.CONFLICT, e.code(), e.getMessage());
+        return body(HttpStatus.CONFLICT, e.code(), e.publicMessage());
     }
 
     /**
@@ -142,7 +150,7 @@ public class ApiExceptionHandler {
         if (status.is5xxServerError()) {
             log.error("request failed [{}]: {}", e.code(), e.getMessage(), e);
         }
-        return body(status, e.code(), e.getMessage());
+        return body(status, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(Exception.class)

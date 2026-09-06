@@ -1,5 +1,8 @@
 package at.aimon.memory.llm;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -8,6 +11,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /** One mapper for the module, configured once. */
 public final class Json {
+
+    private static final Logger log = LoggerFactory.getLogger(Json.class);
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -27,7 +32,7 @@ public final class Json {
         try {
             return MAPPER.readTree(json);
         } catch (JsonProcessingException e) {
-            throw new LlmException("bad_json", "could not parse JSON: " + preview(json));
+            throw unparseable("JSON", json, e);
         }
     }
 
@@ -35,8 +40,7 @@ public final class Json {
         try {
             return MAPPER.readValue(json, type);
         } catch (JsonProcessingException e) {
-            throw new LlmException("bad_json",
-                    "could not parse JSON as " + type.getSimpleName() + ": " + preview(json));
+            throw unparseable("JSON as " + type.getSimpleName(), json, e);
         }
     }
 
@@ -56,10 +60,21 @@ public final class Json {
         }
     }
 
-    private static String preview(String json) {
-        if (json == null) {
-            return "null";
-        }
-        return json.length() <= 200 ? json : json.substring(0, 200) + "…";
+    /**
+     * The text that would not parse goes to the log, never to the caller.
+     *
+     * <p>Almost everything that reaches here is a provider's or a model's own output: the body of an
+     * LLM response, a streamed chunk, the structured answer {@code DefaultLlmClient} deserialises. The
+     * caller did not send it, and a model's answer is written from a prompt built out of the
+     * workspace's stored conclusions and messages — so quoting 200 characters of it into a
+     * {@code bad_json} 500 could hand back memory that this request never mentioned.
+     *
+     * <p>{@code what} still names the target type. That is a compile-time fact about this build, not
+     * data, and it is the one part of the old message worth keeping on the wire: it tells a caller
+     * whether the model returned nothing usable or returned the wrong shape.
+     */
+    private static LlmException unparseable(String what, String json, JsonProcessingException cause) {
+        log.warn("could not parse {}: {}", what, json, cause);
+        return new LlmException("bad_json", "could not parse " + what + "; see the server log");
     }
 }

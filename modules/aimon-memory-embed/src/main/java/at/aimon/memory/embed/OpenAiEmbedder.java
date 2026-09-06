@@ -9,6 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -35,6 +38,8 @@ import at.aimon.memory.text.TokenCounter;
  * </ul>
  */
 public final class OpenAiEmbedder implements Embedder {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiEmbedder.class);
 
     private final EmbeddingProperties props;
     private final HttpClient http;
@@ -149,8 +154,14 @@ public final class OpenAiEmbedder implements Embedder {
                 if (response.statusCode() / 100 == 2) {
                     return mapper.readTree(response.body());
                 }
+                // The body is logged, not returned. `EmbeddingException` is a `MemoryException`, so
+                // its message is copied verbatim into the 500 body — and this body is the embedding
+                // provider's, not the caller's: an OpenAI 401 quotes the configured key back with only
+                // its middle masked, and a gateway in front of the provider answers in HTML naming
+                // internal hosts. WARN because `post` retries; the handler logs ERROR for what escapes.
+                log.warn("embedding request failed: HTTP {} {}", response.statusCode(), response.body());
                 EmbeddingException failure = new EmbeddingException(
-                        "embedding request failed: HTTP " + response.statusCode() + " " + truncate(response.body()));
+                        "embedding request failed: HTTP " + response.statusCode());
                 if (!isRetryable(response.statusCode())) {
                     throw failure;
                 }
@@ -167,10 +178,6 @@ public final class OpenAiEmbedder implements Embedder {
 
     private static boolean isRetryable(int status) {
         return status == 408 || status == 409 || status == 429 || status >= 500;
-    }
-
-    private static String truncate(String body) {
-        return body.length() <= 400 ? body : body.substring(0, 400) + "…";
     }
 
     @Override

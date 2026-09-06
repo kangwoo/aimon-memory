@@ -3,6 +3,7 @@ package at.aimon.memory.llm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import at.aimon.memory.llm.backend.AttemptPlan;
 import at.aimon.memory.llm.backend.ChatCall;
 import at.aimon.memory.llm.backend.ChatTurn;
 import at.aimon.memory.llm.backend.FallbackChatBackend;
+import at.aimon.memory.llm.replay.FixtureMissException;
 
 class FallbackTest {
 
@@ -72,6 +74,33 @@ class FallbackTest {
 
         assertThatThrownBy(() -> backend.chat(call())).isInstanceOf(LlmException.class)
                 .hasMessageContaining("all 3 attempts failed").hasMessageContaining("still 503");
+    }
+
+    /**
+     * Composing another exception's message inherits whatever that one was written for.
+     *
+     * <p>{@code FixtureMissException} is an {@code LlmException}, so it arrives here like any other —
+     * and it is the one message in the build written for a developer rather than a caller, carrying
+     * the assembled prompt and an absolute server path. It is not a corner case either: a second
+     * configured provider is exactly what puts a {@code FallbackChatBackend} in the way, and
+     * {@code MemoryConfiguration.llmClient} wraps each provider in {@code RecordingChatBackend} before
+     * composing them, so a deployment left on the default replay mode misses in every attempt.
+     *
+     * <p>Quoting {@code getMessage} would have put back on the wire, one indirection further along,
+     * precisely what {@code ApiExceptionHandler} refuses to hand back directly.
+     */
+    @Test
+    void exhaustionDoesNotRepublishADiagnosticWrittenForSomebodyElse() {
+        var miss = new FixtureMissException("abc123", "{\"system\":\"a prompt nobody outside should read\"}",
+                Path.of("/srv/aimon-secret-deploy/test-fixtures/llm"));
+        FakeChatBackend only = new FakeChatBackend("only").failing(miss, 99);
+        var backend = new FallbackChatBackend(AttemptPlan.of(List.of(only), 2), 1);
+
+        assertThatThrownBy(() -> backend.chat(call())).isInstanceOf(LlmException.class)
+                .hasMessageContaining("all 2 attempts failed")
+                .hasMessageNotContaining("a prompt nobody outside should read")
+                .hasMessageNotContaining("aimon-secret-deploy").hasMessageNotContaining("AIMON_MEMORY_LLM_MODE")
+                .hasMessage("all 2 attempts failed; last: " + FixtureMissException.PUBLIC_MESSAGE);
     }
 
     @Test

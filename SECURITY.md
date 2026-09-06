@@ -88,6 +88,33 @@ export AIMON_MEMORY_JWT_SECRET=$(openssl rand -base64 48)
 결론을 바꾸는 모든 것이 이벤트를 남긴다. dreamer 는 아무도 보지 않을 때 기억을 편집하므로, 그 로그가
 없으면 "이 믿음이 어디서 왔는가"에 답할 방법이 없다.
 
+### 오류 응답은 저장된 값을 싣지 않는다
+
+4xx·422 본문은 요청을 인용한다 — 호출자가 방금 보낸 값이라 새로 나가는 것이 없고, 그게 쓸모의 전부다.
+**5xx 도 호출자가 보낸 것은 되풀이할 수 있고 — `store_failed` 는 찾던 entity 나 session 이름을 말한다 —
+그 이상은 없다.** 그래서 파싱되지 않는 jsonb 컬럼, 모델 제공자의 응답 본문, 모델의 출력, 이 빌드가 지은
+프롬프트, 서버의 파일 경로는 응답 본문에 들어가지 않고 서버 로그로만 간다. 본문에는 `code` 와, 제공자
+오류라면 상태 코드만 남는다.
+
+특히 세 가지를 노리고 있다. 하나는 **응답 DTO 가 일부러 빼 둔 것** — `internal_metadata` 는 어느 응답에도
+없는데, 그 컬럼이 파싱되지 않으면 500 이 그것을 통째로 돌려주고 있었다. 둘은 **자격 증명의 흔적** —
+OpenAI 의 401 본문은 설정된 API 키를 가운데만 가린 채 되돌려주고, 그 본문이 그대로 500 에 실렸다. 셋은
+**지어진 프롬프트** — `FixtureMissException` 은 canonical request 전체와 fixture 디렉터리를 그대로 싣는
+테스트 하네스용 진단이고, replay 는 옵트인이 아니다. `AIMON_MEMORY_LLM_MODE` 의 기본값이 `replay` 이고
+`MemoryConfiguration` 이 설정된 제공자를 전부 `RecordingChatBackend` 로 감싸므로, 제공자만 설정하고
+모드를 두지 않은 배포는 모든 모델 호출에 그 503 을 돌려주고 있었다. 이제 본문에는 코드만 남는다 — 그
+5xx 에서도, 실패한 dream 을 나열하는 200 에서도. 예외 메시지를 호출자 쪽으로 옮겨 싣는 자리는
+`ApiExceptionHandler` 하나가 아니다. `dreams.error` 는 `Dtos.DreamResponse` 가 200 으로 돌려주는
+컬럼이라 5xx 경계에서만 막는 규칙은 빠져나갈 길을 하나 남긴다. 그래서 그 분리는 예외 자신
+(`MemoryException.publicMessage`)에 있고, 옮겨 싣는 모든 자리가 그것을 쓴다.
+
+> 제공자를 설정하고 `AIMON_MEMORY_LLM_MODE` 를 비워 두는 것은 지원되는 배포가 아니라 **설정 실수**다.
+> 그 상태의 서비스는 `fixture_miss` 말고는 아무것도 돌려주지 않는다. 모드를 명시할 것.
+
+이 규칙은 `ErrorBodyLeakTest` · `FixtureMissBodyTest`(API) 와 `ProviderErrorLeakTest` ·
+`ReplayHarnessTest`(LLM) 가 고정한다. 어떤 응답 본문에서든 당신이 보낸 적 없는 값을 발견했다면, 그것은
+이 문서가 말하는 취약점이 맞다.
+
 ### 자격 증명과 모델 호출
 
 - 제공자 키(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)는 환경변수로만 읽는다. 저장소에 자격 증명은 없다.

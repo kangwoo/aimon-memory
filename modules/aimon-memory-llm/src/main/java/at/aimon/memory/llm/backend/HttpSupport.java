@@ -10,6 +10,9 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.databind.JsonNode;
 
 import at.aimon.memory.llm.Json;
@@ -17,6 +20,8 @@ import at.aimon.memory.llm.LlmException;
 
 /** Shared HTTP plumbing for the provider backends. */
 final class HttpSupport {
+
+    private static final Logger log = LoggerFactory.getLogger(HttpSupport.class);
 
     private HttpSupport() {
     }
@@ -29,16 +34,34 @@ final class HttpSupport {
         return builder;
     }
 
+    /**
+     * The provider's own words go to the log; the caller gets the status code.
+     *
+     * <p>{@code LlmException} is a {@code MemoryException}, so whatever is put in this message is what
+     * {@code ApiExceptionHandler} writes into the 500 body. The provider's error body is not the
+     * caller's text: an OpenAI 401 quotes the configured API key back with only its middle masked, a
+     * gateway in front of the provider answers with HTML naming internal hosts, and a rejection for an
+     * over-long prompt can echo the prompt — which this build assembles out of the workspace's stored
+     * conclusions and messages. None of that is something the caller of this request sent, so none of
+     * it belongs in the answer to it.
+     *
+     * <p>WARN rather than ERROR, and at the throw site rather than only at the handler: most calls
+     * through here are inside {@code FallbackChatBackend}'s plan, so a failure logged at ERROR would be
+     * one the next attempt quietly recovers from. The handler still logs ERROR for the failures that
+     * actually reach a response.
+     */
     static JsonNode send(HttpClient http, HttpRequest request, String provider) {
         try {
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) {
+                log.warn("{} returned HTTP {}: {}", provider, response.statusCode(), response.body());
                 throw new LlmException(errorCode(response.statusCode()),
-                        provider + " returned HTTP " + response.statusCode() + ": " + preview(response.body()));
+                        provider + " returned HTTP " + response.statusCode());
             }
             return Json.read(response.body());
         } catch (IOException e) {
-            throw new LlmException("llm_transport", provider + " call failed: " + e.getMessage());
+            log.warn("{} call failed", provider, e);
+            throw new LlmException("llm_transport", provider + " call failed");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LlmException("llm_interrupted", provider + " call interrupted");
@@ -55,7 +78,8 @@ final class HttpSupport {
             }
             return response.body();
         } catch (IOException e) {
-            throw new LlmException("llm_transport", provider + " stream failed: " + e.getMessage());
+            log.warn("{} stream failed", provider, e);
+            throw new LlmException("llm_transport", provider + " stream failed");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LlmException("llm_interrupted", provider + " stream interrupted");
@@ -75,12 +99,5 @@ final class HttpSupport {
             return "llm_auth";
         }
         return "llm_rejected";
-    }
-
-    static String preview(String body) {
-        if (body == null) {
-            return "";
-        }
-        return body.length() <= 500 ? body : body.substring(0, 500) + "…";
     }
 }

@@ -1,10 +1,14 @@
 package at.aimon.memory.text;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+
+import at.aimon.memory.core.MemoryException;
 
 class AnalyzerTest {
 
@@ -18,6 +22,23 @@ class AnalyzerTest {
             assertThat(tokens).doesNotContain("는", "에서");
             assertThat(analyzer.languageTag()).isEqualTo("ko");
         }
+    }
+
+    /**
+     * A misconfigured user dictionary must not put the server's filesystem layout in a response body.
+     *
+     * <p>{@code AnalyzerRegistry} builds this lazily — on the first request that touches a workspace
+     * whose {@code language} is {@code ko} — so the failure is answered to that caller as a 500, and
+     * {@code ApiExceptionHandler} copies a {@code MemoryException}'s message into it verbatim. The
+     * path is what an operator needs, so it moves to the log rather than disappearing.
+     */
+    @Test
+    void anUnreadableUserDictionaryDoesNotNameItsPath() {
+        Path missing = Path.of("/srv/aimon-secret-deploy/nori/user-dictionary.txt");
+
+        assertThatThrownBy(() -> new KoreanTextAnalyzer(missing)).isInstanceOf(MemoryException.class)
+                .hasMessageNotContaining("aimon-secret-deploy").hasMessageNotContaining("/srv/")
+                .hasMessage("the configured Nori user dictionary could not be read; see the server log");
     }
 
     @Test
