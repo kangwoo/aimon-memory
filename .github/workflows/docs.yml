@@ -39,7 +39,7 @@ jobs:
       # aimon-core's docs.yml, which this workflow is otherwise a copy of. The two Pages
       # actions below are the exception only because nothing else here uses them, so
       # there is no internal version to be consistent with.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
