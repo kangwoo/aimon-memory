@@ -1,0 +1,47 @@
+name: dependabot auto-merge
+
+# Dependabot keeps up to eleven pull requests open across three ecosystems, and every one of them
+# ends the same way: wait for `ci`, press squash. The ruleset on main already refuses anything that
+# has not passed `check` and `integration`, so pressing the button by hand adds no judgement — it
+# only adds the hours between the checks going green and someone noticing. This hands the waiting
+# to GitHub.
+#
+# Auto-merge is a queue, not a bypass. `gh pr merge --auto` records an intent to merge *when* the
+# required checks pass; a red check leaves the pull request open exactly as it is left today, and
+# the ruleset — not this file — is what makes that true. Deleting this workflow returns the
+# repository to merging by hand and changes nothing else.
+on: pull_request
+
+# A Dependabot-triggered run gets a read-only token by default, and `gh pr merge` writes. These are
+# the two scopes GitHub's own auto-merge example declares, and the token needs nothing beyond them.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    # The author of the pull request, not `github.actor`: authorship is the fact this policy is
+    # actually about, and it is the check that stays correct if a run is ever re-run by a person.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      # Reads the update out of Dependabot's own commit metadata rather than parsing the title.
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Majors stay manual, and springdoc is why: 2.9.0 → 3.1.0 compiled, passed the fast gate, and
+      # then took fifteen tests down in `integration` with a NoClassDefFoundError. The gate did hold
+      # — but a major is a decision about which API this build targets, and that is worth a person
+      # reading a changelog even when the tick is green. For a grouped pull request this output is
+      # the largest bump in the group, so a group carrying one major stays manual with it.
+      #
+      # Squash, because main requires linear history and its ruleset allows no merge commit.
+      - name: Enable auto-merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
