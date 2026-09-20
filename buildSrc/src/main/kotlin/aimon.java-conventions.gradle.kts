@@ -83,7 +83,7 @@ configure<SpotlessExtension> {
     format("misc") {
         target("*.gradle.kts", "*.md", ".gitignore")
         trimTrailingWhitespace()
-        indentWithSpaces(2)
+        leadingTabsToSpaces(2)
         endWithNewline()
     }
 }
