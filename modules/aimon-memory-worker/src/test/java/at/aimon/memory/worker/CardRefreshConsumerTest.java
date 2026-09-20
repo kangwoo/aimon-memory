@@ -92,8 +92,7 @@ class CardRefreshConsumerTest {
 
     @Test
     void aFailedRefreshFailsTheDreamRatherThanLeavingItPending() {
-        when(cards.refresh(any()))
-                .thenThrow(new MemoryException("card_generation_failed", "no usable lines"));
+        when(cards.refresh(any())).thenThrow(new MemoryException("card_generation_failed", "no usable lines"));
         var dream = dreams.schedule(pair, DreamRepository.DreamType.CARD_REFRESH, 12).orElseThrow();
         var items = enqueued(dream.id());
 

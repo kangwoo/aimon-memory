@@ -111,7 +111,8 @@ class WorkerLoopPermitTest {
      */
     @Test
     void aClaimThatThrowsGivesItsPermitBack() {
-        when(queue.claim(eq(KEY), anyString(), any())).thenThrow(new CannotGetJdbcConnectionException("pool exhausted"));
+        when(queue.claim(eq(KEY), anyString(), any()))
+                .thenThrow(new CannotGetJdbcConnectionException("pool exhausted"));
         armed.set(true);
 
         assertThatThrownBy(loop::pollOnce).isInstanceOf(CannotGetJdbcConnectionException.class);
@@ -186,7 +187,8 @@ class WorkerLoopPermitTest {
      */
     @Test
     void aWorkerThatKeepsFailingToClaimIsNotNarrowedPermanently() {
-        when(queue.claim(eq(KEY), anyString(), any())).thenThrow(new CannotGetJdbcConnectionException("pool exhausted"));
+        when(queue.claim(eq(KEY), anyString(), any()))
+                .thenThrow(new CannotGetJdbcConnectionException("pool exhausted"));
 
         for (int attempt = 0; attempt <= CONCURRENCY; attempt++) {
             armed.set(true);
