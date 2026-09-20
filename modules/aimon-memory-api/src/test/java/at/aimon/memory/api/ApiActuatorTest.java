@@ -9,7 +9,7 @@ import java.net.http.HttpResponse;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -26,7 +26,7 @@ import at.aimon.memory.testkit.db.PostgresSupport;
  * a service holding personal memory that is not a detail. The separation is the protection, so it is
  * worth a test that would notice it being undone.
  */
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @SpringBootTest(classes = ApiApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "management.server.port=0")
 /**
  * Needs a database. Tagged so it runs in `integrationTest` rather than in `test`: the default tier has to

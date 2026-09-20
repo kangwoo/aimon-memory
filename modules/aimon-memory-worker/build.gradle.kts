@@ -32,6 +32,11 @@ dependencies {
     // `text` for their own tests.
     testImplementation(project(":aimon-memory-text"))
     testImplementation(project(":aimon-memory-recall"))
+    // `@AutoConfigureMetrics`, which `WorkerActuatorTest` uses to turn metrics export back on inside a
+    // test context. Boot 4 moved it out of `spring-boot-starter-test` and split the old
+    // `@AutoConfigureObservability` into a metrics half and a tracing half; this module scrapes the
+    // Prometheus endpoint and asserts nothing about traces, so it takes the metrics half alone.
+    testImplementation("org.springframework.boot:spring-boot-micrometer-metrics-test")
 }
 
 // Deliberately separate from `check`: it is a measurement, not a gate, and it takes minutes.

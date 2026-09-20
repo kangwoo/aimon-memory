@@ -47,7 +47,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(FilterException.class)
     public ResponseEntity<Dtos.ErrorResponse> filter(FilterException e) {
-        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.publicMessage());
+        return body(HttpStatus.UNPROCESSABLE_CONTENT, e.code(), e.publicMessage());
     }
 
     /**
@@ -58,7 +58,7 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(ConfigurationException.class)
     public ResponseEntity<Dtos.ErrorResponse> configuration(ConfigurationException e) {
-        return body(HttpStatus.UNPROCESSABLE_ENTITY, e.code(), e.publicMessage());
+        return body(HttpStatus.UNPROCESSABLE_CONTENT, e.code(), e.publicMessage());
     }
 
     @ExceptionHandler(UnauthorizedException.class)

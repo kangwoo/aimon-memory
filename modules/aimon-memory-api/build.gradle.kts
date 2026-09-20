@@ -20,6 +20,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Boot 4 made Jackson 3 (`tools.jackson`) the default and moved Jackson 2's auto-configuration
+    // into a module of its own, so `spring-boot-starter-web` no longer defines a
+    // `com.fasterxml.jackson.databind.ObjectMapper` bean. `ChatController` injects one — not to
+    // serialise a response, but to turn a caller's `response_format` map into the JSON string the
+    // provider wants — and every other module in this build speaks Jackson 2 as well, so the bean is
+    // restored rather than the seven modules migrated. HTTP message conversion stays on Boot 4's
+    // default, which is Jackson 3; `ApiRoundTripTest` and `OpenApiSpecTest` are what hold that
+    // to the wire format the published schema describes.
+    implementation("org.springframework.boot:spring-boot-jackson2")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-core")
     implementation(libs.findLibrary("springdoc").get())
@@ -31,6 +40,15 @@ dependencies {
 
     testImplementation(project(":aimon-memory-testkit"))
     testImplementation(libs.findLibrary("archunit").get())
+    // Boot 4 split the test slices out of `spring-boot-starter-test`, one artifact per technology, so
+    // the two annotations these tests have always used now have to be asked for by name. Neither is a
+    // new capability: `spring-boot-webmvc-test` carries `@AutoConfigureMockMvc`, which `ApiTestBase`
+    // needs to have a `MockMvc` to autowire, and `spring-boot-micrometer-metrics-test` carries
+    // `@AutoConfigureMetrics` — the replacement for `@AutoConfigureObservability`, which Boot 4 split
+    // into a metrics half and a tracing half. `ApiActuatorTest` scrapes /actuator/prometheus and
+    // asserts nothing about traces, so the metrics half is the whole of what it was using.
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-micrometer-metrics-test")
 }
 
 // ── the architecture gate's subjects ─────────────────────────────────────────────────────────────

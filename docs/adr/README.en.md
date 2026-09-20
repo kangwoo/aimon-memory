@@ -11,7 +11,7 @@ Korean is the canonical text; each record has an English counterpart at the same
 
 | No. | Title | Status | In one line |
 |---|---|---|---|
-| [0001](0001-stack.en.md) | Stack | accepted · 2026-08-31 | Java 21, Spring MVC on virtual threads and one Postgres, rather than the plan's Java 25, WebFlux and three stores |
+| [0001](0001-stack.en.md) | Stack | accepted · 2026-08-31 | Java 21, Spring MVC on virtual threads and one Postgres, rather than the plan's Java 25, WebFlux and three stores. One addendum records the move to Boot 4 and what it cost |
 | [0002](0002-persistence.en.md) | Spring JDBC with hand-written SQL, not jOOQ codegen | accepted · 2026-08-31 | Codegen wants a live database on every build, and the dynamic query is one `FilterCompiler` |
 | [0003](0003-llm-transport.en.md) | Direct HTTP to providers, not their SDKs | accepted · 2026-08-31 | The abstraction has to exist for the tool loop anyway, and an SDK does not offer the record/replay seam |
 | [0004](0004-half-life.en.md) | The recency signal uses a real half-life | accepted · 2026-08-31 | The spec's `exp(−Δ/H)` halves at 125 days, not 180. Corrected to `0.5^(Δ/H)` |
