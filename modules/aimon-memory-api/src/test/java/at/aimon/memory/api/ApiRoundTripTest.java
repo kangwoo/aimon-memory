@@ -132,14 +132,14 @@ class ApiRoundTripTest extends ApiTestBase {
         mvc.perform(post("/v1/workspaces/ws/recall").contentType(MediaType.APPLICATION_JSON).content("""
                 {"query":"x","observer":"alice","observed":"alice",
                  "filter":{"observer":"someone-else"}}
-                """).header("Authorization", bearer(token))).andExpect(status().isUnprocessableEntity())
+                """).header("Authorization", bearer(token))).andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("bad_filter"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("unknown filter field")));
 
         mvc.perform(post("/v1/workspaces/ws/recall").contentType(MediaType.APPLICATION_JSON).content("""
                 {"query":"x","observer":"alice","observed":"alice",
                  "filter":{"times_derived":{"gte":"lots"}}}
-                """).header("Authorization", bearer(token))).andExpect(status().isUnprocessableEntity());
+                """).header("Authorization", bearer(token))).andExpect(status().isUnprocessableContent());
     }
 
     /**

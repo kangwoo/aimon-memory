@@ -9,7 +9,7 @@ import java.net.http.HttpResponse;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -31,7 +31,7 @@ import at.aimon.memory.testkit.db.PostgresSupport;
 // Spring Boot switches metrics export off inside tests by default. Without turning it back on the
 // Prometheus registry is absent, the endpoint 404s, and this test would "prove" a problem that only
 // exists in the test context — while the real gap it was written for stayed invisible.
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @SpringBootTest(classes = WorkerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 /**
  * Needs a database. Tagged so it runs in `integrationTest` rather than in `test`: the default tier has to

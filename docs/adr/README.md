@@ -10,7 +10,7 @@
 
 | 번호 | 제목 | 상태 | 한 줄 요약 |
 |---|---|---|---|
-| [0001](0001-stack.md) | 스택 | accepted · 2026-08-31 | 계획의 Java 25·WebFlux·3-스토어 대신 Java 21, 가상 스레드 위 Spring MVC, Postgres 하나 |
+| [0001](0001-stack.md) | 스택 | accepted · 2026-08-31 | 계획의 Java 25·WebFlux·3-스토어 대신 Java 21, 가상 스레드 위 Spring MVC, Postgres 하나. 덧붙임 하나가 Boot 4 로 올린 일과 그 대가를 적는다 |
 | [0002](0002-persistence.md) | jOOQ 코드 생성이 아니라 손으로 쓴 SQL 과 Spring JDBC | accepted · 2026-08-31 | 코드 생성은 빌드마다 살아 있는 DB 를 요구하는데, 동적 질의는 `FilterCompiler` 하나뿐이다 |
 | [0003](0003-llm-transport.md) | 제공자 SDK 가 아니라 직접 HTTP | accepted · 2026-08-31 | 툴 루프를 통제하려면 추상이 어차피 필요하고, record/replay 이음매는 SDK 가 내주지 않는다 |
 | [0004](0004-half-life.md) | 최신성 신호는 진짜 반감기를 쓴다 | accepted · 2026-08-31 | 명세의 `exp(−Δ/H)` 는 180일이 아니라 125일에 반이 된다. `0.5^(Δ/H)` 로 고쳤다 |

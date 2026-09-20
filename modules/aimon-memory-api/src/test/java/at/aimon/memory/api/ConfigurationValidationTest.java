@@ -40,20 +40,20 @@ class ConfigurationValidationTest extends ApiTestBase {
 
     @Test
     void weightsThatDoNotSumToOneAreRejected() throws Exception {
-        configure("{\"recall.weights\":[0.9,0.9,0.9,0.9,0.9,0.9]}").andExpect(status().isUnprocessableEntity())
+        configure("{\"recall.weights\":[0.9,0.9,0.9,0.9,0.9,0.9]}").andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("bad_configuration"));
     }
 
     @Test
     void theWrongNumberOfWeightsIsRejected() throws Exception {
-        configure("{\"recall.weights\":[0.5,0.5]}").andExpect(status().isUnprocessableEntity())
+        configure("{\"recall.weights\":[0.5,0.5]}").andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("bad_configuration"));
     }
 
     /** A misspelled key used to store cleanly and change nothing, which is the worst of both. */
     @Test
     void anUnknownKeyIsRejectedRatherThanIgnored() throws Exception {
-        configure("{\"recall.half_life\":30}").andExpect(status().isUnprocessableEntity())
+        configure("{\"recall.half_life\":30}").andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("bad_configuration"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("half_life")));
     }
@@ -61,14 +61,14 @@ class ConfigurationValidationTest extends ApiTestBase {
     @Test
     void aValueOutsideTheRangeItCanBeHonouredInIsRejected() throws Exception {
         // A half-life of zero is a division; a threshold above one discards everything.
-        configure("{\"recall.half_life_days\":0}").andExpect(status().isUnprocessableEntity());
-        configure("{\"recall.threshold\":5}").andExpect(status().isUnprocessableEntity());
+        configure("{\"recall.half_life_days\":0}").andExpect(status().isUnprocessableContent());
+        configure("{\"recall.threshold\":5}").andExpect(status().isUnprocessableContent());
     }
 
     @Test
     void aValueOfTheWrongTypeIsRejected() throws Exception {
-        configure("{\"observe_me\":\"yes\"}").andExpect(status().isUnprocessableEntity());
-        configure("{\"recall.oversample\":\"four\"}").andExpect(status().isUnprocessableEntity());
+        configure("{\"observe_me\":\"yes\"}").andExpect(status().isUnprocessableContent());
+        configure("{\"recall.oversample\":\"four\"}").andExpect(status().isUnprocessableContent());
     }
 
     /** Zero turns a batch gate off, which is a configuration rather than a mistake. */
@@ -83,7 +83,7 @@ class ConfigurationValidationTest extends ApiTestBase {
         mvc.perform(post("/v1/workspaces/other").header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"configuration\":{\"recall.weights\":[1,1,1,1,1,1]}}"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableContent());
     }
 
     /**
@@ -102,7 +102,7 @@ class ConfigurationValidationTest extends ApiTestBase {
 
         mvc.perform(put("/v1/workspaces/ws/peers/alice/configuration").header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"configuration\":{\"recall.half_life_days\":5}}"))
-                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("bad_configuration"))
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("bad_configuration"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("workspace")));
     }
 
@@ -110,7 +110,7 @@ class ConfigurationValidationTest extends ApiTestBase {
     void tuningKeysOnASessionAreRejectedToo() throws Exception {
         mvc.perform(post("/v1/workspaces/ws/sessions/s1").header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"configuration\":{\"observe_others\":false}}"))
-                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("bad_configuration"));
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("bad_configuration"));
     }
 
     /** Opaque client keys stay allowed there: nothing about them claims to tune anything. */
