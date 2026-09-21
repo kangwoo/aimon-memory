@@ -20,15 +20,17 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    // Boot 4 made Jackson 3 (`tools.jackson`) the default and moved Jackson 2's auto-configuration
-    // into a module of its own, so `spring-boot-starter-web` no longer defines a
-    // `com.fasterxml.jackson.databind.ObjectMapper` bean. `ChatController` injects one — not to
-    // serialise a response, but to turn a caller's `response_format` map into the JSON string the
-    // provider wants — and every other module in this build speaks Jackson 2 as well, so the bean is
-    // restored rather than the seven modules migrated. HTTP message conversion stays on Boot 4's
-    // default, which is Jackson 3; `ApiRoundTripTest` and `OpenApiSpecTest` are what hold that
-    // to the wire format the published schema describes.
-    implementation("org.springframework.boot:spring-boot-jackson2")
+    // No `spring-boot-jackson2`. It was here to restore the Jackson 2 `ObjectMapper` bean that Boot 4
+    // stopped defining, because `ChatController` injected one and seven other modules spoke Jackson 2
+    // too. Those modules now speak Jackson 3, so the controller injects Boot's own `JsonMapper` and
+    // the compatibility module has nothing left to do.
+    //
+    // Jackson 2 is still on this module's classpath, and that is not a choice this file makes:
+    // springdoc reaches it through `swagger-core-jakarta`, which builds its own Jackson 2 mapper in
+    // `ObjectMapperProvider` rather than taking one from the context, and `jjwt-jackson` has no
+    // Jackson 3 line at all. Neither wants a bean, so neither is a reason to bring this back. Read the
+    // jar on the classpath as those two libraries' business — not as a second JSON dialect for code
+    // written here.
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.flywaydb:flyway-core")
     implementation(libs.findLibrary("springdoc").get())

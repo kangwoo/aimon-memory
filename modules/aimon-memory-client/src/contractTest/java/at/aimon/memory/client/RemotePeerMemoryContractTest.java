@@ -16,16 +16,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import at.aimon.core.memory.PeerMemory;
 import at.aimon.core.memory.PeerView;
 import at.aimon.memory.testkit.AbstractPeerMemoryContractTest;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@link RemotePeerMemory} held to the same five-tier contract as every other {@code PeerMemory} backend.
@@ -189,14 +189,14 @@ class RemotePeerMemoryContractTest extends AbstractPeerMemoryContractTest {
 
     /** {@code POST /v1/workspaces/{ws}/recall} — ranked, thresholded and capped, as the service does it. */
     private String recall(JsonNode body) {
-        String observed = body.path("observed").asText("");
-        String query = body.path("query").asText("");
+        String observed = body.path("observed").asString("");
+        String query = body.path("query").asString("");
         double threshold = body.path("threshold").asDouble(0.0d);
         int limit = body.path("limit").asInt(10);
 
         List<ObjectNode> matches = new ArrayList<>();
         for (ObjectNode conclusion : conclusions.getOrDefault(observed, List.of())) {
-            double score = overlap(query, conclusion.path("content").asText(""));
+            double score = overlap(query, conclusion.path("content").asString(""));
             if (score <= 0.0d || score < threshold) {
                 continue;
             }
@@ -218,8 +218,8 @@ class RemotePeerMemoryContractTest extends AbstractPeerMemoryContractTest {
 
     /** {@code POST /v1/workspaces/{ws}/conclusions} — direct injection, answered with the stored row. */
     private String inject(JsonNode body) {
-        return store(body.path("observed").asText(""), body.path("observer").asText(""),
-                body.path("content").asText("")).toString();
+        return store(body.path("observed").asString(""), body.path("observer").asString(""),
+                body.path("content").asString("")).toString();
     }
 
     /** {@code GET /v1/workspaces/{ws}/conclusions} — one page, and there is never a second one here. */

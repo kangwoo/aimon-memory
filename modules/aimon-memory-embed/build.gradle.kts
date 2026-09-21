@@ -9,7 +9,7 @@ plugins {
 dependencies {
     api(project(":aimon-memory-core"))
     implementation(project(":aimon-memory-text"))
-    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("tools.jackson.core:jackson-databind")
     // For `EmbedConfiguration` alone. The embedders themselves are plain objects and stay that way —
     // `OpenAiEmbedder` takes a record, `HashingEmbedder` takes an int — so this buys the module the
     // ability to say which of the two a deployment gets, without either of them knowing about Spring.

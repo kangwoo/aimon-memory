@@ -11,8 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A labelled corpus and the queries asked of it.
@@ -46,8 +46,8 @@ public record EvaluationSet(String name, String note, List<Document> corpus, Lis
             JsonNode root = MAPPER.readTree(Files.readString(file, StandardCharsets.UTF_8));
             List<Document> corpus = new ArrayList<>();
             for (JsonNode node : root.path("corpus")) {
-                corpus.add(new Document(node.path("id").asText(), node.path("content").asText(),
-                        node.path("level").asText("explicit"), strings(node.path("entities")),
+                corpus.add(new Document(node.path("id").asString(), node.path("content").asString(),
+                        node.path("level").asString("explicit"), strings(node.path("entities")),
                         node.path("timesDerived").asInt(1), node.path("daysAgo").asInt(0),
                         strings(node.path("sourceIds")),
                         node.hasNonNull("confidence") ? node.get("confidence").asDouble() : null));
@@ -55,19 +55,23 @@ public record EvaluationSet(String name, String note, List<Document> corpus, Lis
             List<Query> queries = new ArrayList<>();
             for (JsonNode node : root.path("queries")) {
                 Map<String, Integer> judgements = new LinkedHashMap<>();
-                node.path("judgements").fields()
-                        .forEachRemaining(e -> judgements.put(e.getKey(), e.getValue().asInt()));
-                queries.add(new Query(node.path("id").asText(), node.path("query").asText(), judgements));
+                node.path("judgements").properties().forEach(e -> judgements.put(e.getKey(), e.getValue().asInt()));
+                queries.add(new Query(node.path("id").asString(), node.path("query").asString(), judgements));
             }
-            return new EvaluationSet(name, root.path("note").asText(""), corpus, queries);
+            return new EvaluationSet(name, root.path("note").asString(""), corpus, queries);
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read evaluation set " + file, e);
+        } catch (tools.jackson.core.JacksonException e) {
+            // Jackson 3 raises on a field whose type does not match the accessor — `"daysAgo": "3"`
+            // binds under Jackson 2 and not here. Naming the file is the point: the raise would
+            // otherwise carry a node type and no clue which fixture to open.
+            throw new IllegalStateException("evaluation set " + file + " is not the shape this reader expects", e);
         }
     }
 
     private static List<String> strings(JsonNode node) {
         List<String> out = new ArrayList<>();
-        node.forEach(item -> out.add(item.asText()));
+        node.forEach(item -> out.add(item.asString()));
         return out;
     }
 

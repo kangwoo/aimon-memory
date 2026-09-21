@@ -14,13 +14,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.key.TaskType;
 import at.aimon.memory.core.key.WorkUnitKey;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The pair is the product. A token that reaches one it does not own defeats the only guarantee this
@@ -154,7 +154,7 @@ class PairScopeTest extends ApiTestBase {
                                 + "\"content\":\"alice works at a bank\"}")
                         .header("Authorization", bearer(peerToken("ws", "alice"))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return MAPPER.readTree(created).path("id").asText();
+        return MAPPER.readTree(created).path("id").asString();
     }
 
     /**

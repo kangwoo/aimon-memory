@@ -12,14 +12,14 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
 import at.aimon.memory.text.TokenCounter;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * OpenAI embeddings over plain HTTP.
@@ -133,8 +133,16 @@ public final class OpenAiEmbedder implements Embedder {
             throw new EmbeddingException("expected " + props.dimensions() + " dimensions, got " + node.size());
         }
         float[] vector = new float[node.size()];
-        for (int i = 0; i < vector.length; i++) {
-            vector[i] = (float) node.get(i).asDouble();
+        try {
+            for (int i = 0; i < vector.length; i++) {
+                vector[i] = (float) node.get(i).asDouble();
+            }
+        } catch (JacksonException e) {
+            // Jackson 2 read a non-numeric element as 0.0, so a provider answering `["0.1", null]`
+            // produced a vector that was silently part zeroes — wrong, stored, and searched against.
+            // Jackson 3 raises instead; this keeps that raise inside the type the retry loop in
+            // `post` and every caller of `embed` already handle.
+            throw new EmbeddingException("embedding contains a value that is not a number", e);
         }
         return vector;
     }

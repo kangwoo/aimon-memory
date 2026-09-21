@@ -18,12 +18,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-
 import at.aimon.memory.api.security.RoutePolicy;
 import at.aimon.memory.testkit.golden.GoldenFixtures;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The committed {@code docs/openapi.json} is what the running application generates.
@@ -52,9 +52,8 @@ class OpenApiSpecTest extends ApiTestBase {
      * the ordering feature acts on maps, and an {@code ObjectNode} is not one — it would have kept
      * whatever order the scan produced and turned every unrelated run into a diff.
      */
-    private static final ObjectMapper CANONICAL = new ObjectMapper()
-            .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
-            .configure(SerializationFeature.INDENT_OUTPUT, true);
+    private static final ObjectMapper CANONICAL = JsonMapper.builder()
+            .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).enable(SerializationFeature.INDENT_OUTPUT).build();
 
     @Autowired
     private RoutePolicy policy;
@@ -92,10 +91,10 @@ class OpenApiSpecTest extends ApiTestBase {
 
         eachOperation((route, operation) -> {
             operations.add(route);
-            if (operation.path("summary").asText("").isBlank()) {
+            if (operation.path("summary").asString("").isBlank()) {
                 undescribed.add(route + " (no summary)");
             }
-            if (!operation.path("description").asText("").contains("Requires a `")) {
+            if (!operation.path("description").asString("").contains("Requires a `")) {
                 undescribed.add(route + " (no scope)");
             }
         });

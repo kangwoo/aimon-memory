@@ -5,7 +5,7 @@ plugins {
 
 dependencies {
     api(project(":aimon-memory-core"))
-    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("tools.jackson.core:jackson-databind")
 
     testImplementation(project(":aimon-memory-testkit"))
 }

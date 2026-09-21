@@ -2,10 +2,9 @@ package at.aimon.memory.engine.dialectic;
 
 import java.util.Set;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.core.MemoryException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Validates a caller-supplied response schema before it reaches a provider.
@@ -44,7 +43,7 @@ public final class ResponseSchemaGuard {
         JsonNode root;
         try {
             root = MAPPER.readTree(schemaJson);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw reject("schema is not valid JSON");
         }
         walk(root, 0);
@@ -58,14 +57,14 @@ public final class ResponseSchemaGuard {
         if (!node.isObject()) {
             throw reject("every schema node must be an object");
         }
-        node.fieldNames().forEachRemaining(field -> {
+        node.propertyNames().forEach(field -> {
             if (!ALLOWED_KEYWORDS.contains(field)) {
                 throw reject("unsupported schema keyword '" + field + "'");
             }
         });
 
         JsonNode type = node.get("type");
-        if (type == null || !type.isTextual() || !ALLOWED_TYPES.contains(type.asText())) {
+        if (type == null || !type.isString() || !ALLOWED_TYPES.contains(type.asString())) {
             throw reject("each node needs a 'type' from " + ALLOWED_TYPES);
         }
         JsonNode properties = node.get("properties");

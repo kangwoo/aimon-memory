@@ -61,3 +61,97 @@ a different constant name.
 
 All 623 tests pass. `docs/openapi.json` did not change by a byte, and `OpenApiSpecTest` is what
 confirms it.
+
+## Addendum · 2026-09-21 — The seven modules moved, and "not migrating" above is now false
+
+The addendum just above gave the reason for restoring Jackson 2's `ObjectMapper` bean with
+`spring-boot-jackson2`: "migrating seven modules is not what a framework bump is". That was true
+then. The work has since been done on its own.
+
+| Above | Now |
+|---|---|
+| "restored with `spring-boot-jackson2`, because seven modules in this build speak Jackson 2" | Seven modules speak Jackson 3. `spring-boot-jackson2` is gone. |
+
+37 Java files across 8 modules, most of it import substitution. The annotations were left alone —
+Jackson 3's `jackson-databind` still depends on `com.fasterxml.jackson.core:jackson-annotations`, so
+the two `@JsonIgnoreProperties` imports are unchanged. Jackson 3 made mappers immutable and dropped
+`ObjectMapper.configure(...)`, so the mappers in `Json` and `OpenApiSpecTest` moved to
+`JsonMapper.builder()`. `JsonProcessingException` became `JacksonException` and stopped being
+checked, but the catches were retyped rather than deleted — what those blocks do is turn a Jackson
+failure into this domain's `LlmException` or `StoreException`, and that is still wanted.
+`JsonNode.fields()` and `fieldNames()` are gone in favour of `properties()` and `propertyNames()`,
+which hand back a `Collection` rather than an `Iterator`, so two `forEachRemaining` loops became
+`forEach` and a third collapsed into `declared.addAll(node.path("properties").propertyNames())`.
+
+**One part is not substitution.** `asText()` → `asString()`, 129 sites, is not a rename. Jackson 3
+**redefined the `asString`/`asInt`/`asBoolean` family from "coerce, falling back to a zero value" to
+"coerce, or raise"**. Measured by running the same code against both versions' jars:
+
+| node | Jackson 2 | Jackson 3 |
+|---|---|---|
+| object / array `.asText()` / `.asString()` | `""` | **`JsonNodeException`** |
+| null node | `"null"` | `""` |
+| object `.asText("d")` / `.asString("d")` | `""` | `"d"` |
+| `"4.9".asInt()` | `4` | **raises** |
+| `"hi".asInt()` / `true.asInt()` | `0` / `1` | **raises** |
+| `"hi".asBoolean()` | `false` | **raises** |
+
+`asInt`, `asDouble` and `asBoolean` kept their names, so they do not appear in this change's diff at
+all — and they changed the same way. That is the easiest part of this migration to miss, and it went
+unlooked-at until review.
+
+**The strictness itself is right.** Reading a provider's wrong-shaped answer as an empty string was
+the bug. What cannot stand is where the raise lands. `JsonNodeException` is a `RuntimeException` and
+is not an `LlmException`, and `FallbackChatBackend.run` catches `LlmException` and nothing else — so
+unwrapped, one provider's response shape drifting takes the request down instead of handing it to the
+next provider. Further up it misses `ApiExceptionHandler`'s `MemoryException` branch and becomes a
+500 with no code. Under Jackson 2 the same response degraded to an empty answer and nothing recorded
+it. None of those three is what this system promises.
+
+So the strictness stays and the boundaries were built. `Json.shaped` (llm) and `MemoryHttp.shaped`
+(client) move Jackson's failures into the types each module already had — `LlmException("bad_json")`
+and `RemoteMemoryException`. `OpenAiEmbedder` raises `EmbeddingException` rather than storing a
+part-zero vector; `EvaluationSet` names the fixture. `bad_json` is not `llm_rejected`, so the
+fallback chain moves on to the next attempt, which is what should happen when one provider of several
+cannot be read. `ProviderShapeDriftTest` pins this, and its failover case was confirmed to fail with
+the wrapping removed before it was kept.
+
+**The strictness stops in one place: a provider's token count.** Every other read raises on the
+argument that an answer read as empty is worse than no answer, and that argument does not hold here.
+A token count is telemetry: it changes nothing about the completion it arrives with, and an absent
+`usage` block already reads `0` — so `0` is this code's existing word for "no count", not a value
+invented to swallow an error. Letting one gateway that types `prompt_tokens` as a string cost the
+whole answer would spend a failover, a second provider's bill and the caller's wait on a metric. So
+`HttpSupport.tokenCount` degrades to `0` instead of raising, and says so in the log rather than
+silently — that is the half of the Jackson 2 behaviour worth keeping, and silence is the half that
+was not. `asInt` still coerces a numeric string, so the common gateway sloppiness costs nothing, and
+only a genuinely unreadable count reaches the `0`. Two cases in `ProviderShapeDriftTest` pin both
+sides.
+
+`FAIL_ON_TRAILING_TOKENS` and `FAIL_ON_NULL_FOR_PRIMITIVES` also flipped their defaults. Both are
+left flipped, with the reason written into `Json` — a model that appends a sentence to its JSON has
+not answered the schema it was given, and reading half of it is how that went unnoticed.
+`ChatController` injects `JsonMapper`, not `ObjectMapper`: Boot 4's XML and CBOR configurations each
+define another bean assignable to `ObjectMapper`, so the wider type becomes a
+`NoUniqueBeanDefinitionException` the day either arrives. `aimon-memory-engine` now declares the
+annotations coordinate it imports instead of relying on it transitively.
+
+**Jackson 2 does not leave the classpath.** That is not something this change failed to do; it is
+not available. Even setting the two libraries below aside, Jackson 3's own databind depends on the
+Jackson 2 annotations artifact, so no module here is free of it. springdoc reaches Jackson 2 through
+`swagger-core-jakarta`, and `jjwt-jackson` has no Jackson 3 line at all. Neither asks the context for
+a mapper — both build their own — so neither is a reason to bring `spring-boot-jackson2` back.
+`aimon-memory-client` also carries both, because `aimon-core` brings Jackson 2 in at runtime.
+aimon-core does expose Jackson 2 in public signatures — `McpTransport.sendRequest(String, JsonNode)`
+and around two dozen others — but none of them is in `at.aimon.core.memory.*`, the PeerMemory
+contract this module implements, and none is among the 28 aimon-core types it imports. That is what
+made moving this module possible, and it is a narrower claim than "aimon-core does not expose
+Jackson", which is false.
+
+The other six (llm, store, engine, embed, recall, testkit) have no jackson-**databind** 2 on their
+runtime classpath. They do all still carry `com.fasterxml.jackson.core:jackson-annotations`, because
+Jackson 3's databind depends on it — as the paragraph above says it does.
+
+`checkAll` and `integrationTest` both pass. `docs/openapi.json` again did not change by a byte, and
+`OpenApiSpecTest` is what confirms it — dropping `spring-boot-jackson2` did not touch the schema
+this service publishes.

@@ -10,8 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /** The HTTP surface end to end: hierarchy, ingestion, direct injection, recall, audit. */
 class ApiRoundTripTest extends ApiTestBase {
@@ -64,7 +64,7 @@ class ApiRoundTripTest extends ApiTestBase {
                 {"observer":"alice","observed":"alice","session":"s1",
                  "content":"alice works at a bank in seoul","entities":["seoul"]}
                 """);
-        String id = MAPPER.readTree(created).path("id").asText();
+        String id = MAPPER.readTree(created).path("id").asString();
 
         String recalled = postJson("/v1/workspaces/ws/recall",
                 "{\"query\":\"bank seoul\",\"observer\":\"alice\",\"observed\":\"alice\"}");
@@ -110,7 +110,7 @@ class ApiRoundTripTest extends ApiTestBase {
                 {"observer":"alice","observed":"alice","session":"s1",
                  "content":"alice works at a bank","entities":[]}
                 """);
-        String id = MAPPER.readTree(created).path("id").asText();
+        String id = MAPPER.readTree(created).path("id").asString();
 
         mvc.perform(delete("/v1/workspaces/ws/conclusions/" + id).header("Authorization", bearer(token)))
                 .andExpect(status().isOk());
@@ -152,7 +152,7 @@ class ApiRoundTripTest extends ApiTestBase {
                 {"observer":"newcomer","observed":"stranger","session":"brand-new",
                  "content":"stranger prefers email","entities":[]}
                 """);
-        org.assertj.core.api.Assertions.assertThat(MAPPER.readTree(created).path("id").asText()).isNotBlank();
+        org.assertj.core.api.Assertions.assertThat(MAPPER.readTree(created).path("id").asString()).isNotBlank();
 
         mvc.perform(get("/v1/workspaces/ws/peers/newcomer").header("Authorization", bearer(token)))
                 .andExpect(status().isOk());

@@ -20,8 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.spi.LlmClient;
@@ -29,6 +27,7 @@ import at.aimon.memory.engine.dream.DreamerService;
 import at.aimon.memory.store.repo.DreamRepository;
 import at.aimon.memory.testkit.db.PostgresSupport;
 import at.aimon.memory.testkit.stub.StubLlmClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A failed dream's {@code error} column is a response body, and a driver wrote most of what went in it.
@@ -159,7 +158,7 @@ class DreamErrorBodyLeakTest extends ApiTestBase {
                         .content("{\"observer\":\"alice\",\"observed\":\"bob\",\"session\":\"s\","
                                 + "\"content\":\"bob lives at " + STORED + "\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return new ObjectMapper().readTree(created).get("id").asText();
+        return new ObjectMapper().readTree(created).get("id").asString();
     }
 
     private void answerWith(String json) {

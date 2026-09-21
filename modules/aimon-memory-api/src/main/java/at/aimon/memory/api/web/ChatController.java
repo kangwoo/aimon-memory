@@ -39,11 +39,15 @@ public class ChatController {
     private static final long SSE_TIMEOUT_MILLIS = 300_000;
 
     private final DialecticService dialectic;
-    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
+    private final tools.jackson.databind.json.JsonMapper mapper;
     private final PairScope pairs;
 
-    public ChatController(DialecticService dialectic, com.fasterxml.jackson.databind.ObjectMapper mapper,
-            PairScope pairs) {
+    // `JsonMapper`, not `ObjectMapper`. Boot 4's `JacksonAutoConfiguration` defines the bean as a
+    // `JsonMapper`, and its `XmlConfiguration` and `CborConfiguration` each define another bean that is
+    // also assignable to `ObjectMapper`, conditional on `jackson-dataformat-xml` or `-cbor` being
+    // present. Neither is on this classpath today, so the wider type resolves — right up until one of
+    // them arrives and by-type injection becomes a `NoUniqueBeanDefinitionException` at startup.
+    public ChatController(DialecticService dialectic, tools.jackson.databind.json.JsonMapper mapper, PairScope pairs) {
         this.dialectic = dialectic;
         this.mapper = mapper;
         this.pairs = pairs;
@@ -170,7 +174,7 @@ public class ChatController {
         if (body.responseFormat() != null && !body.responseFormat().isEmpty()) {
             try {
                 schema = mapper.writeValueAsString(body.responseFormat());
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (tools.jackson.core.JacksonException e) {
                 throw new at.aimon.memory.core.MemoryException("bad_response_format",
                         "response_format is not serialisable");
             }

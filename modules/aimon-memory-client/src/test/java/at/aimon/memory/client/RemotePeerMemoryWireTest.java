@@ -17,8 +17,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -42,6 +40,8 @@ import at.aimon.core.memory.Workspace;
 import at.aimon.core.memory.dialectic.DialecticQuery;
 import at.aimon.core.memory.dialectic.DialecticResponse;
 import at.aimon.core.memory.dialectic.ReasoningLevel;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * What this adapter actually sends, and what it makes of what comes back.
@@ -160,9 +160,9 @@ class RemotePeerMemoryWireTest {
                 MemorySearchQuery.builder().subject(ALICE).observer(BOB).query("tea").topK(7).minScore(0.25).build());
 
         JsonNode sent = requests.get("/v1/workspaces/ws/recall");
-        assertThat(sent.path("observed").asText()).as("the subject is who the memory is about").isEqualTo("alice");
-        assertThat(sent.path("observer").asText()).as("the observer is whose memory it is").isEqualTo("bob");
-        assertThat(sent.path("query").asText()).isEqualTo("tea");
+        assertThat(sent.path("observed").asString()).as("the subject is who the memory is about").isEqualTo("alice");
+        assertThat(sent.path("observer").asString()).as("the observer is whose memory it is").isEqualTo("bob");
+        assertThat(sent.path("query").asString()).isEqualTo("tea");
         assertThat(sent.path("limit").asInt()).isEqualTo(7);
         assertThat(sent.path("threshold").asDouble()).isEqualTo(0.25);
         assertThat(sent.path("explain").asBoolean()).as("the signal breakdown is asked for, not optional").isTrue();
@@ -175,8 +175,8 @@ class RemotePeerMemoryWireTest {
         memory.searcher().orElseThrow().search(MemorySearchQuery.builder().subject(ALICE).query("tea").build());
 
         JsonNode sent = requests.get("/v1/workspaces/ws/recall");
-        assertThat(sent.path("observer").asText()).isEqualTo("alice");
-        assertThat(sent.path("observed").asText()).isEqualTo("alice");
+        assertThat(sent.path("observer").asString()).isEqualTo("alice");
+        assertThat(sent.path("observed").asString()).isEqualTo("alice");
     }
 
     @Test
@@ -319,10 +319,10 @@ class RemotePeerMemoryWireTest {
                         .content("alice drinks tea").type(ObservationType.EXPLICIT).build());
 
         JsonNode sent = requests.get("/v1/workspaces/ws/conclusions");
-        assertThat(sent.path("observer").asText()).isEqualTo("bob");
-        assertThat(sent.path("observed").asText()).isEqualTo("alice");
-        assertThat(sent.path("content").asText()).isEqualTo("alice drinks tea");
-        assertThat(sent.path("session").asText()).isEqualTo("s1");
+        assertThat(sent.path("observer").asString()).isEqualTo("bob");
+        assertThat(sent.path("observed").asString()).isEqualTo("alice");
+        assertThat(sent.path("content").asString()).isEqualTo("alice drinks tea");
+        assertThat(sent.path("session").asString()).isEqualTo("s1");
         assertThat(stored.getId().getLocalId()).isEqualTo("c5");
     }
 
@@ -343,9 +343,9 @@ class RemotePeerMemoryWireTest {
 
         JsonNode sent = requests.get("/v1/workspaces/ws/sessions/s1/messages");
         assertThat(sent.path("messages")).hasSize(2);
-        assertThat(sent.path("messages").get(0).path("peer").asText()).isEqualTo("alice");
-        assertThat(sent.path("messages").get(0).path("content").asText()).isEqualTo("I drink tea");
-        assertThat(sent.path("messages").get(1).path("peer").asText()).isEqualTo("assistant");
+        assertThat(sent.path("messages").get(0).path("peer").asString()).isEqualTo("alice");
+        assertThat(sent.path("messages").get(0).path("content").asString()).isEqualTo("I drink tea");
+        assertThat(sent.path("messages").get(1).path("peer").asString()).isEqualTo("assistant");
         assertThat(receipt.getAccepted()).isEqualTo(2);
         assertThat(receipt.isDerived()).as("ingestion queues; the worker derives afterwards").isFalse();
     }
@@ -371,10 +371,10 @@ class RemotePeerMemoryWireTest {
                         .question("what does alice drink?").level(ReasoningLevel.DEEP).build());
 
         JsonNode sent = requests.get("/v1/workspaces/ws/chat");
-        assertThat(sent.path("observer").asText()).isEqualTo("bob");
-        assertThat(sent.path("observed").asText()).isEqualTo("alice");
-        assertThat(sent.path("session").asText()).isEqualTo("s1");
-        assertThat(sent.path("reasoningLevel").asText()).isEqualTo("high");
+        assertThat(sent.path("observer").asString()).isEqualTo("bob");
+        assertThat(sent.path("observed").asString()).isEqualTo("alice");
+        assertThat(sent.path("session").asString()).isEqualTo("s1");
+        assertThat(sent.path("reasoningLevel").asString()).isEqualTo("high");
         assertThat(response.getAnswer()).isEqualTo("she drinks tea");
         assertThat(response.getObservationsConsidered())
                 .as("the service reports tool calls, not the rows they returned").isEmpty();
