@@ -13,10 +13,9 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.testkit.eval.EvaluationSet;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Structural checks on the Tier 2 evaluation set.
@@ -43,7 +42,7 @@ class DialecticEvaluationSetTest {
     @Test
     void everyFailureModeTheDialecticPromptTargetsIsCovered() {
         Map<String, Integer> byCategory = new LinkedHashMap<>();
-        set().path("queries").forEach(q -> byCategory.merge(q.path("category").asText(), 1, Integer::sum));
+        set().path("queries").forEach(q -> byCategory.merge(q.path("category").asString(), 1, Integer::sum));
 
         // One category per behaviour the system prompt asks for. Dropping any of them leaves that
         // instruction untested while the suite still reports a number.
@@ -57,10 +56,10 @@ class DialecticEvaluationSetTest {
     void everyQueryStatesWhatWouldCountAsPassing() {
         List<String> ids = new ArrayList<>();
         set().path("queries").forEach(q -> {
-            assertThat(q.path("query").asText()).as("query text").isNotBlank();
+            assertThat(q.path("query").asString()).as("query text").isNotBlank();
             // Without this, scoring drifts to whatever the reader thinks a good answer is.
-            assertThat(q.path("expect").asText()).as("%s expectation", q.path("id").asText()).isNotBlank();
-            ids.add(q.path("id").asText());
+            assertThat(q.path("expect").asString()).as("%s expectation", q.path("id").asString()).isNotBlank();
+            ids.add(q.path("id").asString());
         });
         assertThat(ids).doesNotHaveDuplicates();
     }
@@ -70,11 +69,11 @@ class DialecticEvaluationSetTest {
     void theRubricWeightsGroundingAboveStyle() {
         Map<String, Integer> weights = new LinkedHashMap<>();
         set().path("rubric").path("criteria")
-                .forEach(c -> weights.put(c.path("id").asText(), c.path("weight").asInt()));
+                .forEach(c -> weights.put(c.path("id").asString(), c.path("weight").asInt()));
 
         assertThat(weights).containsKeys("grounded", "abstained", "complete", "current", "conflict");
         assertThat(weights.get("grounded")).isGreaterThan(weights.get("direct"));
         assertThat(weights.get("abstained")).isGreaterThan(weights.get("cited"));
-        set().path("rubric").path("criteria").forEach(c -> assertThat(c.path("question").asText()).isNotBlank());
+        set().path("rubric").path("criteria").forEach(c -> assertThat(c.path("question").asString()).isNotBlank());
     }
 }

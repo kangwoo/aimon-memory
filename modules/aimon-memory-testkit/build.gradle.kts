@@ -11,7 +11,7 @@ dependencies {
     // The stub embedder tokenizes with the same analyzer the runtime uses, so a Korean fixture
     // behaves the way Korean actually behaves rather than the way a whitespace split pretends it does.
     api(project(":aimon-memory-text"))
-    api("com.fasterxml.jackson.core:jackson-databind")
+    api("tools.jackson.core:jackson-databind")
     api(libs.findLibrary("tc-postgres").get())
     api(libs.findLibrary("tc-junit").get())
     api(libs.findLibrary("assertj").get())

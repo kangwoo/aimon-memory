@@ -58,7 +58,7 @@ class JsonbTest {
 
         assertThat(thrown).isNotNull();
         assertThat(thrown.code()).isEqualTo("store_failed");
-        assertThat(thrown.getCause()).isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+        assertThat(thrown.getCause()).isInstanceOf(tools.jackson.core.JacksonException.class);
     }
 
     /** A blank or absent column is the empty value, not a failure — unchanged, and pinned here. */

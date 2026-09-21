@@ -21,7 +21,7 @@ dependencies {
     // `api`, not `implementation`: every tier this module implements is an aimon-core type, so the contract is on
     // the consumer's compile classpath by definition.
     api(libs.findLibrary("aimon-core").get())
-    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("tools.jackson.core:jackson-databind")
 
     testImplementation(libs.findLibrary("assertj").get())
 }

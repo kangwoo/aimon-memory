@@ -8,11 +8,12 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * A real HTTP server on an ephemeral port.
@@ -76,7 +77,7 @@ final class FakeEmbeddingServer implements AutoCloseable {
             }
 
             String input(int index) {
-                return body.path("input").get(index).asText();
+                return body.path("input").get(index).asString();
             }
         }
 

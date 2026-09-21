@@ -11,14 +11,13 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.spi.llm.LlmUsage;
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Anthropic messages.
@@ -106,23 +105,28 @@ public final class AnthropicChatBackend implements ChatBackend {
                 HttpSupport.request(baseUrl + "/v1/messages", headers(), timeout, body.toString()).build(),
                 "anthropic");
 
-        StringBuilder text = new StringBuilder();
-        List<ToolUse> uses = new ArrayList<>();
-        for (JsonNode block : root.path("content")) {
-            switch (block.path("type").asText()) {
-                case "text" -> text.append(block.path("text").asText());
-                case "tool_use" -> uses.add(new ToolUse(block.path("id").asText(), block.path("name").asText(),
-                        block.path("input").toString()));
-                default -> {
-                    // thinking and other block types carry no payload this pipeline consumes
+        // Every read below is of a provider-controlled content block, and under Jackson 3 a block
+        // whose `text` is an object rather than a string raises instead of yielding `""`. Wrapped so
+        // that drift fails over to the next provider; see `Json.shaped`.
+        return Json.shaped("anthropic", () -> {
+            StringBuilder text = new StringBuilder();
+            List<ToolUse> uses = new ArrayList<>();
+            for (JsonNode block : root.path("content")) {
+                switch (block.path("type").asString()) {
+                    case "text" -> text.append(block.path("text").asString());
+                    case "tool_use" -> uses.add(new ToolUse(block.path("id").asString(), block.path("name").asString(),
+                            block.path("input").toString()));
+                    default -> {
+                        // thinking and other block types carry no payload this pipeline consumes
+                    }
                 }
             }
-        }
-        String answer = text.toString();
-        return new ChatResponse(answer.isEmpty() ? null : answer, uses, root.path("model").asText(call.model()),
-                new LlmUsage(root.path("usage").path("input_tokens").asInt(),
-                        root.path("usage").path("output_tokens").asInt()),
-                root.toString());
+            String answer = text.toString();
+            return new ChatResponse(answer.isEmpty() ? null : answer, uses, root.path("model").asString(call.model()),
+                    new LlmUsage(root.path("usage").path("input_tokens").asInt(),
+                            root.path("usage").path("output_tokens").asInt()),
+                    root.toString());
+        });
     }
 
     @Override
@@ -133,9 +137,10 @@ public final class AnthropicChatBackend implements ChatBackend {
                         HttpSupport.request(baseUrl + "/v1/messages", headers(), timeout, body.toString()).build(),
                         "anthropic")
                 .filter(line -> line.startsWith("data: ")).map(line -> Json.read(line.substring(6)))
-                .map(AnthropicChatBackend::failOnErrorEvent)
-                .filter(node -> "content_block_delta".equals(node.path("type").asText()))
-                .map(node -> node.path("delta").path("text").asText("")).filter(text -> !text.isEmpty());
+                .map(node -> Json.shaped("anthropic", () -> failOnErrorEvent(node)))
+                .filter(node -> Json.shaped("anthropic",
+                        () -> "content_block_delta".equals(node.path("type").asString())))
+                .map(node -> node.path("delta").path("text").asString("")).filter(text -> !text.isEmpty());
     }
 
     /**
@@ -154,7 +159,7 @@ public final class AnthropicChatBackend implements ChatBackend {
      * that promises a retry nothing will perform.
      */
     private static JsonNode failOnErrorEvent(JsonNode event) {
-        if (!"error".equals(event.path("type").asText())) {
+        if (!"error".equals(event.path("type").asString())) {
             return event;
         }
         JsonNode error = event.path("error");
@@ -162,10 +167,10 @@ public final class AnthropicChatBackend implements ChatBackend {
         // prose as an error body from `HttpSupport.send`, and this message lands in a 500 body
         // verbatim. `type` stays — it is a fixed token from the provider's own vocabulary
         // (`overloaded_error`, `api_error`), which is what tells a caller whether to retry.
-        log.warn("anthropic ended the stream with {}: {}", error.path("type").asText("an error"),
-                error.path("message").asText(""));
+        log.warn("anthropic ended the stream with {}: {}", error.path("type").asString("an error"),
+                error.path("message").asString(""));
         throw new LlmException("llm_stream_error",
-                "anthropic ended the stream with " + error.path("type").asText("an error"));
+                "anthropic ended the stream with " + error.path("type").asString("an error"));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

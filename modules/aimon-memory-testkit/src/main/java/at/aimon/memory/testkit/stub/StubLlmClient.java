@@ -5,8 +5,6 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.spi.LlmClient;
 import at.aimon.memory.core.spi.llm.LlmRequest;
@@ -14,6 +12,7 @@ import at.aimon.memory.core.spi.llm.LlmUsage;
 import at.aimon.memory.core.spi.llm.StructuredResult;
 import at.aimon.memory.core.spi.llm.ToolDef;
 import at.aimon.memory.core.spi.llm.ToolLoopResult;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A scripted model.
@@ -50,7 +49,7 @@ public final class StubLlmClient implements LlmClient {
         String json = responder.apply(req);
         try {
             return new StructuredResult<>(MAPPER.readValue(json, schema), json, "stub", new LlmUsage(10, 10));
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw new MemoryException("stub_bad_json",
                     "stub response is not valid " + schema.getSimpleName() + ": " + json);
         }

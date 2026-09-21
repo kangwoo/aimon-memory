@@ -12,8 +12,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The wire format this adapter assumes, checked against the description the service publishes.
@@ -69,7 +69,7 @@ class OpenApiContractTest {
     void theSnapshotReadSendsParametersTheRouteDeclares() {
         List<String> declared = new ArrayList<>();
         openapi.path("paths").path("/v1/workspaces/{workspace}/conclusions").path("get").path("parameters")
-                .forEach(parameter -> declared.add(parameter.path("name").asText()));
+                .forEach(parameter -> declared.add(parameter.path("name").asString()));
         assertThat(declared).contains("observer", "observed", "page", "size");
     }
 
@@ -110,7 +110,7 @@ class OpenApiContractTest {
         JsonNode node = openapi.path("components").path("schemas").path(schema);
         assertThat(node.isObject()).as("schema '%s' is missing from the published description", schema).isTrue();
         List<String> declared = new ArrayList<>();
-        node.path("properties").fieldNames().forEachRemaining(declared::add);
+        declared.addAll(node.path("properties").propertyNames());
         assertThat(declared).as("RemotePeerMemory names these on '%s'; a rename here reaches the adapter as a "
                 + "silently absent field, not as an error", schema).containsAll(properties);
     }

@@ -16,10 +16,9 @@ import jakarta.validation.constraints.Size;
 
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.api.dto.Requests;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The lower bounds {@code docs/openapi.json} publishes are the ones the runtime enforces.

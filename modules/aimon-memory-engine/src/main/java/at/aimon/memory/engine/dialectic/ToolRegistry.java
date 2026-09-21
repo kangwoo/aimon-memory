@@ -7,9 +7,6 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.filter.Filter;
 import at.aimon.memory.core.filter.FilterOp;
@@ -23,6 +20,8 @@ import at.aimon.memory.recall.ProvenanceService;
 import at.aimon.memory.recall.RecallRequest;
 import at.aimon.memory.recall.RecallService;
 import at.aimon.memory.store.repo.MessageRepository;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The seven tools the dialectic can call.
@@ -93,7 +92,7 @@ public class ToolRegistry {
                         + " has been re-derived and when it was last confirmed. Start here.",
                 schema("query", "What to look for, in the language of the source conversation."), arguments -> {
                     JsonNode node = parse(arguments);
-                    var response = recall.recall(new RecallRequest(pair, node.path("query").asText(""), limit(node),
+                    var response = recall.recall(new RecallRequest(pair, node.path("query").asString(""), limit(node),
                             Filter.ALL, null, false));
                     return renderHits(response.hits());
                 });
@@ -106,7 +105,7 @@ public class ToolRegistry {
                 schema("query", "Keywords to search for."), arguments -> {
                     JsonNode node = parse(arguments);
                     return renderMessages(messages.searchText(pair.workspaceName(), pair.observer(), sessionName,
-                            node.path("query").asText(""), limit(node)));
+                            node.path("query").asString(""), limit(node)));
                 });
     }
 
@@ -117,7 +116,7 @@ public class ToolRegistry {
                 schema("text", "The exact phrase to find."), arguments -> {
                     JsonNode node = parse(arguments);
                     return renderMessages(messages.grep(pair.workspaceName(), pair.observer(), sessionName,
-                            node.path("text").asText(""), limit(node)));
+                            node.path("text").asString(""), limit(node)));
                 });
     }
 
@@ -136,8 +135,8 @@ public class ToolRegistry {
                         """, arguments -> {
                     JsonNode node = parse(arguments);
                     return renderMessages(messages.byDateRange(pair.workspaceName(), pair.observer(), sessionName,
-                            instant(node.path("from").asText(), Instant.EPOCH),
-                            instant(node.path("to").asText(), Instant.now()), limit(node)));
+                            instant(node.path("from").asString(), Instant.EPOCH),
+                            instant(node.path("to").asString(), Instant.now()), limit(node)));
                 });
     }
 
@@ -169,11 +168,11 @@ public class ToolRegistry {
                     // FilterCompiler's TIMESTAMP coercion is written against.
                     Filter window = Filter.and(
                             new Filter.Cmp("last_reinforced_at", FilterOp.GTE,
-                                    instant(node.path("from").asText(), Instant.EPOCH).toString()),
+                                    instant(node.path("from").asString(), Instant.EPOCH).toString()),
                             new Filter.Cmp("last_reinforced_at", FilterOp.LT,
-                                    instant(node.path("to").asText(), Instant.now()).toString()));
+                                    instant(node.path("to").asString(), Instant.now()).toString()));
                     var response = recall.recall(
-                            new RecallRequest(pair, node.path("query").asText(""), limit(node), window, null, false));
+                            new RecallRequest(pair, node.path("query").asString(""), limit(node), window, null, false));
                     return renderHits(response.hits());
                 });
     }
@@ -184,7 +183,7 @@ public class ToolRegistry {
                         + " derived from it in turn.",
                 schema("conclusion_id", "The id of a conclusion returned by another tool."), arguments -> {
                     JsonNode node = parse(arguments);
-                    String id = node.path("conclusion_id").asText("");
+                    String id = node.path("conclusion_id").asString("");
                     return conclusions.find(pair.workspaceName(), id).map(conclusion -> {
                         var trace = provenance.forConclusion(pair, conclusion);
                         StringBuilder sb = new StringBuilder();
@@ -215,7 +214,7 @@ public class ToolRegistry {
                         + " the original messages behind each.",
                 schema("entity", "The name, as it appears in the conversation."), arguments -> {
                     JsonNode node = parse(arguments);
-                    String name = node.path("entity").asText("");
+                    String name = node.path("entity").asString("");
                     return provenance.forEntity(pair, name, DEFAULT_LIMIT).map(result -> {
                         StringBuilder sb = new StringBuilder();
                         sb.append("entity: ").append(result.entity().nameDisplay()).append('\n');
@@ -284,7 +283,7 @@ public class ToolRegistry {
     private static JsonNode parse(String arguments) {
         try {
             return MAPPER.readTree(arguments == null || arguments.isBlank() ? "{}" : arguments);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw new MemoryException("bad_tool_arguments", "arguments are not valid JSON: " + arguments);
         }
     }

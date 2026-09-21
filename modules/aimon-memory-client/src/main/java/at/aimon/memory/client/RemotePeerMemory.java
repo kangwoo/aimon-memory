@@ -8,10 +8,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.core.base.Principal;
 import at.aimon.core.llm.Message;
 import at.aimon.core.llm.TokenUsage;
@@ -37,6 +33,9 @@ import at.aimon.core.memory.dialectic.DialecticEngine;
 import at.aimon.core.memory.dialectic.DialecticQuery;
 import at.aimon.core.memory.dialectic.DialecticResponse;
 import at.aimon.core.memory.dialectic.ReasoningLevel;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * An AIMON Memory deployment, reached over HTTP, presented as the five tiers aimon-core replaces a memory backend at.
@@ -214,7 +213,7 @@ public final class RemotePeerMemory implements PeerMemory {
         int budget = query.getMaxTokens();
 
         for (JsonNode item : body.path("items")) {
-            String content = item.path("content").asText("");
+            String content = item.path("content").asString("");
             if (content.isEmpty()) {
                 continue;
             }
@@ -333,7 +332,7 @@ public final class RemotePeerMemory implements PeerMemory {
 
         JsonNode response = http.post(MemoryHttp.path("v1", "workspaces", workspace, "chat"), body,
                 options.getChatTimeout());
-        String answer = response == null ? "" : response.path("answer").asText("");
+        String answer = response == null ? "" : response.path("answer").asString("");
         return DialecticResponse.builder().answer(answer).observationsConsidered(List.of())
                 // The service does not report usage on this route, and a fabricated zero would be indistinguishable
                 // from a call that genuinely cost nothing. `empty()` is the value that means "not measured here".
@@ -504,13 +503,19 @@ public final class RemotePeerMemory implements PeerMemory {
      */
     private static Observation toObservation(JsonNode conclusion, Workspace workspace, PeerView knownSubject,
             PeerView knownObserver) {
-        String observed = conclusion.path("observed").asText("");
-        String observer = conclusion.path("observer").asText(observed);
+        return MemoryHttp.shaped("conclusion",
+                () -> shapeObservation(conclusion, workspace, knownSubject, knownObserver));
+    }
+
+    private static Observation shapeObservation(JsonNode conclusion, Workspace workspace, PeerView knownSubject,
+            PeerView knownObserver) {
+        String observed = conclusion.path("observed").asString("");
+        String observer = conclusion.path("observer").asString(observed);
         Observation.Builder builder = Observation.builder()
-                .id(ObservationId.of(workspace, conclusion.path("id").asText("")))
+                .id(ObservationId.of(workspace, conclusion.path("id").asString("")))
                 .subject(viewOf(workspace, observed, knownSubject)).observer(viewOf(workspace, observer, knownObserver))
-                .content(conclusion.path("content").asText(""))
-                .type(observationTypeOf(conclusion.path("level").asText("")))
+                .content(conclusion.path("content").asString(""))
+                .type(observationTypeOf(conclusion.path("level").asString("")))
                 .sourceMessageIds(textList(conclusion.path("messageIds")))
                 .createdAt(instantOf(conclusion.path("createdAt"))).metadata(metadataOf(conclusion));
         if (conclusion.hasNonNull("confidence")) {
@@ -539,13 +544,13 @@ public final class RemotePeerMemory implements PeerMemory {
     private static Map<String, String> metadataOf(JsonNode conclusion) {
         Map<String, String> metadata = new LinkedHashMap<>();
         if (conclusion.hasNonNull("timesDerived")) {
-            metadata.put("timesDerived", conclusion.path("timesDerived").asText());
+            metadata.put("timesDerived", conclusion.path("timesDerived").asString());
         }
         if (conclusion.hasNonNull("lastReinforcedAt")) {
-            metadata.put("lastReinforcedAt", conclusion.path("lastReinforcedAt").asText());
+            metadata.put("lastReinforcedAt", conclusion.path("lastReinforcedAt").asString());
         }
         if (conclusion.hasNonNull("session")) {
-            metadata.put("session", conclusion.path("session").asText());
+            metadata.put("session", conclusion.path("session").asString());
         }
         return metadata;
     }
@@ -556,12 +561,15 @@ public final class RemotePeerMemory implements PeerMemory {
             return Map.of();
         }
         Map<String, Double> signals = new LinkedHashMap<>();
-        for (String signal : List.of("sem", "kw", "ent", "reinf", "rec", "lvl")) {
-            if (explain.hasNonNull(signal)) {
-                signals.put(signal, explain.path(signal).asDouble());
+        // `hasNonNull` admits a string, and `asDouble()` raises on one under Jackson 3 where Jackson 2 read 0.0.
+        return MemoryHttp.shaped("explain block", () -> {
+            for (String signal : List.of("sem", "kw", "ent", "reinf", "rec", "lvl")) {
+                if (explain.hasNonNull(signal)) {
+                    signals.put(signal, explain.path(signal).asDouble());
+                }
             }
-        }
-        return Map.copyOf(signals);
+            return Map.copyOf(signals);
+        });
     }
 
     private static List<String> textList(JsonNode array) {
@@ -570,17 +578,20 @@ public final class RemotePeerMemory implements PeerMemory {
         }
         List<String> values = new ArrayList<>(array.size());
         for (JsonNode element : array) {
-            values.add(element.asText());
+            // `asString()` raises on a container under Jackson 3 where Jackson 2 gave `""`. Its only
+            // caller runs inside `MemoryHttp.shaped`, which is where that becomes the
+            // `RemoteMemoryException` this adapter promises; a guard here would only restate it.
+            values.add(element.asString());
         }
         return List.copyOf(values);
     }
 
     private static Instant instantOf(JsonNode node) {
-        if (node == null || !node.isTextual()) {
+        if (node == null || !node.isString()) {
             return Instant.now();
         }
         try {
-            return Instant.parse(node.asText());
+            return Instant.parse(node.asString());
         } catch (RuntimeException e) {
             return Instant.now();
         }

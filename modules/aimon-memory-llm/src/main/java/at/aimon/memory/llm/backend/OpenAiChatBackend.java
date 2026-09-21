@@ -11,14 +11,13 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.spi.llm.LlmUsage;
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * OpenAI chat completions.
@@ -61,16 +60,25 @@ public final class OpenAiChatBackend implements ChatBackend {
         JsonNode root = HttpSupport.send(http,
                 HttpSupport.request(baseUrl + "/chat/completions", headers(), timeout, body.toString()).build(),
                 "openai");
-        JsonNode message = root.path("choices").path(0).path("message");
-        List<ToolUse> uses = new ArrayList<>();
-        for (JsonNode call2 : message.path("tool_calls")) {
-            uses.add(new ToolUse(call2.path("id").asText(), call2.path("function").path("name").asText(),
-                    call2.path("function").path("arguments").asText("{}")));
-        }
-        return new ChatResponse(message.hasNonNull("content") ? message.get("content").asText() : null, uses,
-                root.path("model").asText(call.model()), new LlmUsage(root.path("usage").path("prompt_tokens").asInt(),
-                        root.path("usage").path("completion_tokens").asInt()),
-                root.toString());
+        // `hasNonNull` does not exclude a container, and an OpenAI-compatible gateway answering
+        // `content` as a parts array is a common enough variant that this is the likeliest shape
+        // mismatch in the build. Under Jackson 2 it read as `""`; now it raises, and `Json.shaped` is
+        // what turns that into a failover rather than a 500. The `usage` reads matter for the same
+        // reason in reverse — they are telemetry, and without this a malformed token count would
+        // discard an answer the provider actually returned.
+        return Json.shaped("openai", () -> {
+            JsonNode message = root.path("choices").path(0).path("message");
+            List<ToolUse> uses = new ArrayList<>();
+            for (JsonNode call2 : message.path("tool_calls")) {
+                uses.add(new ToolUse(call2.path("id").asString(), call2.path("function").path("name").asString(),
+                        call2.path("function").path("arguments").asString("{}")));
+            }
+            return new ChatResponse(message.hasNonNull("content") ? message.get("content").asString() : null, uses,
+                    root.path("model").asString(call.model()),
+                    new LlmUsage(root.path("usage").path("prompt_tokens").asInt(),
+                            root.path("usage").path("completion_tokens").asInt()),
+                    root.toString());
+        });
     }
 
     @Override
@@ -81,8 +89,9 @@ public final class OpenAiChatBackend implements ChatBackend {
                         HttpSupport.request(baseUrl + "/chat/completions", headers(), timeout, body.toString()).build(),
                         "openai")
                 .filter(line -> line.startsWith("data: ")).map(line -> line.substring(6))
-                .takeWhile(payload -> !"[DONE]".equals(payload)).map(payload -> failOnErrorChunk(Json.read(payload)))
-                .map(node -> node.path("choices").path(0).path("delta").path("content").asText(""))
+                .takeWhile(payload -> !"[DONE]".equals(payload))
+                .map(payload -> Json.shaped("openai", () -> failOnErrorChunk(Json.read(payload))))
+                .map(node -> node.path("choices").path(0).path("delta").path("content").asString(""))
                 .filter(text -> !text.isEmpty());
     }
 
@@ -105,10 +114,10 @@ public final class OpenAiChatBackend implements ChatBackend {
         JsonNode error = chunk.get("error");
         // See the Anthropic backend: `message` is the provider's own prose and would be copied into
         // a 500 body, `type` is a fixed token and is what the caller can act on.
-        log.warn("openai ended the stream with {}: {}", error.path("type").asText("an error"),
-                error.path("message").asText(""));
+        log.warn("openai ended the stream with {}: {}", error.path("type").asString("an error"),
+                error.path("message").asString(""));
         throw new LlmException("llm_stream_error",
-                "openai ended the stream with " + error.path("type").asText("an error"));
+                "openai ended the stream with " + error.path("type").asString("an error"));
     }
 
     private ObjectNode body(ChatCall call, boolean stream) {

@@ -8,8 +8,8 @@ import org.postgresql.util.PGobject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /** Map/List to and from {@code jsonb}. */
 public final class Jsonb {
@@ -48,7 +48,7 @@ public final class Jsonb {
             object.setType("jsonb");
             object.setValue(MAPPER.writeValueAsString(value == null ? Map.of() : value));
             return object;
-        } catch (SQLException | com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (SQLException | tools.jackson.core.JacksonException e) {
             throw new StoreException("cannot serialise jsonb value", e);
         }
     }
@@ -59,7 +59,7 @@ public final class Jsonb {
         }
         try {
             return MAPPER.readValue(json, MAP_TYPE);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw unreadable("object", json, e);
         }
     }
@@ -70,7 +70,7 @@ public final class Jsonb {
         }
         try {
             return MAPPER.readValue(json, STRING_LIST_TYPE);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (tools.jackson.core.JacksonException e) {
             throw unreadable("array", json, e);
         }
     }

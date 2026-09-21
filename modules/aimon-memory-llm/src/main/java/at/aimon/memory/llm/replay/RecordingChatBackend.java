@@ -4,10 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.spi.llm.LlmUsage;
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmMode;
@@ -15,6 +11,9 @@ import at.aimon.memory.llm.backend.ChatBackend;
 import at.aimon.memory.llm.backend.ChatCall;
 import at.aimon.memory.llm.backend.ChatResponse;
 import at.aimon.memory.llm.backend.ToolUse;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The record/replay decorator.
@@ -125,16 +124,19 @@ public final class RecordingChatBackend implements ChatBackend {
     }
 
     private static ChatResponse deserialise(String json) {
-        JsonNode node = Json.read(json);
+        return Json.shaped("a recorded fixture", () -> shape(Json.read(json)));
+    }
+
+    private static ChatResponse shape(JsonNode node) {
         List<ToolUse> uses = new ArrayList<>();
         for (JsonNode u : node.path("tool_uses")) {
-            uses.add(new ToolUse(u.path("id").asText(), u.path("name").asText(), u.path("arguments").asText()));
+            uses.add(new ToolUse(u.path("id").asString(), u.path("name").asString(), u.path("arguments").asString()));
         }
-        return new ChatResponse(node.hasNonNull("text") ? node.get("text").asText() : null, uses,
-                node.path("model").asText(),
+        return new ChatResponse(node.hasNonNull("text") ? node.get("text").asString() : null, uses,
+                node.path("model").asString(),
                 new LlmUsage(node.path("usage").path("prompt_tokens").asInt(),
                         node.path("usage").path("completion_tokens").asInt()),
-                node.hasNonNull("raw") ? node.get("raw").asText() : null);
+                node.hasNonNull("raw") ? node.get("raw").asString() : null);
     }
 
     @Override

@@ -11,12 +11,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Reads and writes {@code test-fixtures/llm/{hash}.json}.
@@ -68,12 +67,12 @@ public final class LlmFixtureStore {
             if (chunkNode != null && chunkNode.isArray()) {
                 chunks = new ArrayList<>();
                 for (JsonNode c : chunkNode) {
-                    chunks.add(c.asText());
+                    chunks.add(c.asString());
                 }
             }
-            return Optional.of(new LlmFixture(key, root.path("canonical_request").asText(),
+            return Optional.of(new LlmFixture(key, root.path("canonical_request").asString(),
                     root.hasNonNull("response") ? root.get("response").toString() : null, chunks,
-                    root.path("recorded_at").asText()));
+                    root.path("recorded_at").asString()));
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read fixture " + file, e);
         }

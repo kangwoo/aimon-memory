@@ -58,3 +58,82 @@ Boot 3.5 클래스패스에는 그 모듈이 없어서, 2.x 에 머무는 동안
 
 623개 테스트가 전부 통과한다. `docs/openapi.json` 은 한 바이트도 바뀌지 않았고, `OpenApiSpecTest` 가
 그것을 확인한다.
+
+## 덧붙임 · 2026-09-21 — 일곱 모듈을 옮겼고, 위의 "옮기지 않았다" 는 이제 거짓이다
+
+바로 위 덧붙임은 `spring-boot-jackson2` 로 Jackson 2 의 `ObjectMapper` 빈을 되살린 이유를 "이 빌드의
+일곱 모듈이 Jackson 2 를 쓰므로 빈을 되살렸지, 일곱 모듈을 옮기지 않았다" 라고 적었다. 그 문장은 그때
+맞았다. 지금은 그 일을 따로 했다.
+
+| 위에서 | 지금 |
+|---|---|
+| "`spring-boot-jackson2` 로 빈을 되살렸지, 일곱 모듈을 옮기지 않았다" | 일곱 모듈이 Jackson 3 을 쓴다. `spring-boot-jackson2` 는 빠졌다. |
+
+Java 파일 37개, 모듈 8개. 대부분은 임포트 치환이다. 애너테이션은 손대지 않았다 — Jackson 3 의
+`jackson-databind` 는 여전히 `com.fasterxml.jackson.core:jackson-annotations` 에 의존하므로
+`@JsonIgnoreProperties` 임포트 두 줄은 그대로다. Jackson 3 은 매퍼를 불변으로 만들어
+`ObjectMapper.configure(...)` 가 없어졌으므로 `Json` 과 `OpenApiSpecTest` 의 매퍼가
+`JsonMapper.builder()` 로 옮겼다. `JsonProcessingException` 이 `JacksonException` 이 되면서 검사 예외가
+아니게 됐지만 catch 는 지우지 않고 타입만 바꿨다 — 그 블록들이 하는 일은 Jackson 예외를 이 도메인의
+`LlmException`·`StoreException` 으로 바꾸는 것이고, 그건 여전히 필요하다. `JsonNode.fields()` 와
+`fieldNames()` 는 사라져서 `properties()`·`propertyNames()` 가 됐고, 이쪽은 `Iterator` 가 아니라
+`Collection` 을 주므로 `forEachRemaining` 두 곳이 `forEach` 가 되고 나머지 한 곳은
+`declared.addAll(node.path("properties").propertyNames())` 로 접혔다.
+
+**치환이 아닌 것이 하나 있다.** `asText()` → `asString()` 129곳은 이름 변경이 아니다. Jackson 3 은
+`asString`·`asInt`·`asBoolean` 계열을 **"강제변환하되 안 되면 zero value"에서 "강제변환하되 안 되면
+예외"로 재정의**했다. 두 버전의 jar 로 같은 코드를 돌려 확인한 표다.
+
+| 노드 | Jackson 2 | Jackson 3 |
+|---|---|---|
+| object·array `.asText()` / `.asString()` | `""` | **`JsonNodeException`** |
+| null 노드 | `"null"` | `""` |
+| object `.asText("d")` / `.asString("d")` | `""` | `"d"` |
+| `"4.9".asInt()` | `4` | **예외** |
+| `"hi".asInt()` · `true.asInt()` | `0` · `1` | **예외** |
+| `"hi".asBoolean()` | `false` | **예외** |
+
+`asInt`·`asDouble`·`asBoolean` 은 이름이 바뀌지 않아 이 변경의 diff 에 아예 나타나지 않는다. 그런데도
+똑같이 바뀌었다. 그게 이 이전에서 가장 놓치기 쉬운 부분이었고, 실제로 리뷰 전까지 아무도 보지 않았다.
+
+**엄격해진 것 자체는 옳다.** 제공자가 엉뚱한 모양으로 답했는데 빈 문자열로 읽는 쪽이 틀렸다. 그대로
+둘 수 없는 것은 그 예외가 떨어지는 위치다. `JsonNodeException` 은 `RuntimeException` 이면서
+`LlmException` 이 아니고, `FallbackChatBackend.run` 은 `LlmException` 만 잡는다 — 감싸지 않으면 제공자
+하나의 응답 모양이 바뀌었을 때 다음 제공자로 넘어가는 대신 요청 전체가 죽는다. 위로 올라가서는
+`ApiExceptionHandler` 의 `MemoryException` 분기도 놓쳐 코드 없는 500 이 된다. Jackson 2 에서는 같은
+응답이 빈 답변으로 degrade 돼 아무 일도 없었던 것처럼 지나갔다. 셋 중 어느 것도 이 시스템이 약속한
+동작이 아니다.
+
+그래서 엄격함은 두고 경계를 만들었다. `Json.shaped`(llm)·`MemoryHttp.shaped`(client) 가 Jackson 의
+예외를 각 모듈이 이미 갖고 있던 타입 — `LlmException("bad_json")`, `RemoteMemoryException` — 으로
+옮긴다. `OpenAiEmbedder` 는 일부가 0 인 벡터를 저장하는 대신 `EmbeddingException` 을 던지고,
+`EvaluationSet` 은 어느 픽스처인지 이름을 담는다. `bad_json` 은 `llm_rejected` 가 아니므로 fallback
+체인이 다음 시도로 넘어간다 — 제공자 여럿 중 하나를 읽을 수 없을 때 일어나야 할 일이 그것이다.
+`ProviderShapeDriftTest` 가 이것을 고정하며, failover 케이스는 감싸는 코드를 빼면 실패한다는 것을
+확인하고 넣었다.
+
+`FAIL_ON_TRAILING_TOKENS` 와 `FAIL_ON_NULL_FOR_PRIMITIVES` 도 기본값이 뒤집혔다. 둘 다 뒤집힌 채로
+두되 `Json` 에 이유를 적었다 — 모델이 JSON 뒤에 문장을 덧붙였다면 받은 스키마에 답한 것이 아니고,
+절반만 읽는 것이 그걸 눈치채지 못한 방법이었다. `ChatController` 는 `ObjectMapper` 가 아니라
+`JsonMapper` 를 주입받는다. Boot 4 의 XML·CBOR 구성이 각각 `ObjectMapper` 에 배정 가능한 빈을 하나씩 더
+정의하므로, 둘 중 하나가 들어오는 날 넓은 타입은 `NoUniqueBeanDefinitionException` 이 된다.
+`aimon-memory-engine` 은 import 하던 애너테이션 좌표를 전이 의존에 기대지 않고 직접 선언한다.
+
+**Jackson 2 는 클래스패스에서 사라지지 않는다.** 이건 이 변경이 못 한 일이 아니라 할 수 없는 일이다.
+아래 두 라이브러리를 제쳐두더라도, Jackson 3 의 databind 자체가 Jackson 2 의 애너테이션 아티팩트에
+의존하므로 여기 어느 모듈도 그것에서 자유롭지 않다. springdoc 이 `swagger-core-jakarta` 를 거쳐
+Jackson 2 를 끌어오고, `jjwt-jackson` 에는 Jackson 3 계열이 아예 없다. 둘 다 빈을 요구하지 않고 자기
+매퍼를 직접 만들기 때문에 `spring-boot-jackson2` 를 되살릴 이유는 되지 않는다. `aimon-memory-client` 는
+`aimon-core` 가 Jackson 2 를 runtime 으로 가져오므로 역시 둘 다 갖는다. `aimon-core` 는 공개 시그니처에
+Jackson 2 를 노출한다 — `McpTransport.sendRequest(String, JsonNode)` 를 비롯해 스무 곳 남짓. 다만 그중
+어느 것도 이 모듈이 구현하는 PeerMemory 계약(`at.aimon.core.memory.*`)에 있지 않고, 이 모듈이 import
+하는 28개 타입에도 없다. 그것이 이 모듈을 옮길 수 있게 한 근거이고, "aimon-core 는 Jackson 을 노출하지
+않는다" 보다 좁은 주장이다 — 넓은 쪽은 거짓이다.
+
+나머지 여섯 모듈(llm·store·engine·embed·recall·testkit)의 런타임 클래스패스에는 이제
+jackson-**databind** 2 가 없다. 다만 여섯 모듈 모두 `com.fasterxml.jackson.core:jackson-annotations` 는
+여전히 갖는다. 바로 위 문단이 적었듯 Jackson 3 의 databind 가 그것에 의존하기 때문이다.
+
+`checkAll` 과 `integrationTest` 가 모두 통과한다. `docs/openapi.json` 은 다시 한 바이트도 바뀌지 않았고,
+`OpenApiSpecTest` 가 그것을 확인한다 — `spring-boot-jackson2` 를 뺀 것이 발행되는 스키마를 건드리지
+않았다는 뜻이다.

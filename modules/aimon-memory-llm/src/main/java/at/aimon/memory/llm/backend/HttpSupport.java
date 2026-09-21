@@ -13,10 +13,9 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
+import tools.jackson.databind.JsonNode;
 
 /** Shared HTTP plumbing for the provider backends. */
 final class HttpSupport {

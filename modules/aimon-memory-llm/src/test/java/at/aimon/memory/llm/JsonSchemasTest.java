@@ -7,7 +7,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 class JsonSchemasTest {
 
@@ -24,18 +24,18 @@ class JsonSchemasTest {
     void generatesStrictSchemaFromARecord() {
         JsonNode schema = Json.read(JsonSchemas.forRecord(Outer.class));
 
-        assertThat(schema.path("type").asText()).isEqualTo("object");
+        assertThat(schema.path("type").asString()).isEqualTo("object");
         // Strict mode requires additionalProperties:false and every property named in required.
         assertThat(schema.path("additionalProperties").asBoolean()).isFalse();
         assertThat(schema.path("required")).extracting(node -> node.toString()).asString().contains("title", "tags",
                 "items", "active", "score");
 
-        assertThat(schema.path("properties").path("tags").path("type").asText()).isEqualTo("array");
-        assertThat(schema.path("properties").path("tags").path("items").path("type").asText()).isEqualTo("string");
+        assertThat(schema.path("properties").path("tags").path("type").asString()).isEqualTo("array");
+        assertThat(schema.path("properties").path("tags").path("items").path("type").asString()).isEqualTo("string");
         assertThat(schema.path("properties").path("items").path("items").path("properties").path("count").path("type")
-                .asText()).isEqualTo("integer");
-        assertThat(schema.path("properties").path("score").path("type").asText()).isEqualTo("number");
-        assertThat(schema.path("properties").path("active").path("type").asText()).isEqualTo("boolean");
+                .asString()).isEqualTo("integer");
+        assertThat(schema.path("properties").path("score").path("type").asString()).isEqualTo("number");
+        assertThat(schema.path("properties").path("active").path("type").asString()).isEqualTo("boolean");
     }
 
     /**

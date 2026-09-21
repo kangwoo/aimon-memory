@@ -10,9 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The transport. One place where a request becomes bytes and a response becomes a tree or an exception.
@@ -38,6 +39,24 @@ final class MemoryHttp {
 
     static ObjectNode object() {
         return JSON.createObjectNode();
+    }
+
+    /**
+     * Runs a reader over a response body, keeping Jackson's own failures inside this adapter's contract.
+     *
+     * <p>Jackson 3's {@code asString}/{@code asDouble} raise where Jackson 2 coerced to {@code ""} or {@code 0.0} —
+     * a service that answered {@code confidence} as a string, or {@code content} as an object, used to be read as a
+     * degraded value and now throws {@code JsonNodeException}. Raising is the better of the two, but the exception is
+     * an unchecked Jackson type, and no caller of {@code PeerMemory} is written to catch one: this adapter's whole
+     * stated contract is that a failure arrives as {@link RemoteMemoryException}, which is what
+     * {@code MemoryHttp.send}'s javadoc builds the "unreachable versus absent" distinction on.
+     */
+    static <T> T shaped(String what, java.util.function.Supplier<T> reader) {
+        try {
+            return reader.get();
+        } catch (JacksonException e) {
+            throw new RemoteMemoryException("the service's " + what + " is not the shape this adapter reads", e);
+        }
     }
 
     /**
@@ -120,7 +139,7 @@ final class MemoryHttp {
         }
         try {
             return JSON.readTree(response.body());
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new RemoteMemoryException(request.uri() + " answered " + status + " with a body that is not JSON", e);
         }
     }
@@ -139,9 +158,9 @@ final class MemoryHttp {
         if (body != null && !body.isBlank()) {
             try {
                 JsonNode error = JSON.readTree(body);
-                code = error.path("code").asText(null);
-                message = error.path("message").asText(null);
-            } catch (IOException ignored) {
+                code = error.path("code").asString(null);
+                message = error.path("message").asString(null);
+            } catch (JacksonException ignored) {
                 // Not the documented error shape. The status and the raw body are still worth reporting.
                 message = body;
             }

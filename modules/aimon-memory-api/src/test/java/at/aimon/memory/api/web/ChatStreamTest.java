@@ -12,8 +12,6 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import at.aimon.memory.api.dto.Requests;
 import at.aimon.memory.api.security.MemoryPrincipal;
 import at.aimon.memory.api.security.PairScope;
@@ -21,6 +19,7 @@ import at.aimon.memory.core.MemoryException;
 import at.aimon.memory.core.spi.LlmClient;
 import at.aimon.memory.engine.dialectic.DialecticService;
 import at.aimon.memory.engine.dialectic.ToolRegistry;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The SSE worker's handling of the provider stream, driven directly.
@@ -69,7 +68,7 @@ class ChatStreamTest {
                 return stream;
             }
         };
-        return new ChatController(stub, new ObjectMapper(), new PairScope());
+        return new ChatController(stub, new JsonMapper(), new PairScope());
     }
 
     private static Requests.ChatRequest request() {
@@ -181,7 +180,7 @@ class ChatStreamTest {
             }
         };
 
-        SseEmitter emitter = new ChatController(failing, new ObjectMapper(), new PairScope()).stream(WORKSPACE,
+        SseEmitter emitter = new ChatController(failing, new JsonMapper(), new PairScope()).stream(WORKSPACE,
                 MemoryPrincipal.admin(), request());
 
         assertThat(attempted.await(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue();

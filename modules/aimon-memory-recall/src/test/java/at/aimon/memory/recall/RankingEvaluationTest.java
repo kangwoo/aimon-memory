@@ -16,10 +16,6 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.Actor;
 import at.aimon.memory.core.model.ConclusionDraft;
@@ -30,6 +26,9 @@ import at.aimon.memory.testkit.eval.RankingMetrics;
 import at.aimon.memory.text.ContentHash;
 import at.aimon.memory.text.KoreanTextAnalyzer;
 import at.aimon.memory.text.Normalizer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The ranking quality gate — the one the golden fixtures deliberately cannot be.
@@ -157,7 +156,7 @@ class RankingEvaluationTest extends RecallTestBase {
         // documents to 40 and the queries from 16 to 50 — made "did this help or hurt" unanswerable and
         // the gate green regardless. Expanding the corpus is fine; doing it in the same change as the
         // behaviour under measurement is not, and this is what says so out loud.
-        assertThat(baseline.path("corpus").asText())
+        assertThat(baseline.path("corpus").asString())
                 .as("the baseline was measured on a different corpus. Expand the corpus and"
                         + " regenerate the baseline (-Daimon.memory.eval.update=true) in a change that"
                         + " alters nothing else, then make the ranking change on top of it")
@@ -171,12 +170,12 @@ class RankingEvaluationTest extends RecallTestBase {
 
         // Per query as well as in aggregate: a mean can hide one query collapsing while others improve.
         Map<String, JsonNode> baselineByQuery = new LinkedHashMap<>();
-        baseline.path("perQuery").forEach(node -> baselineByQuery.put(node.path("id").asText(), node));
+        baseline.path("perQuery").forEach(node -> baselineByQuery.put(node.path("id").asString(), node));
         for (ObjectNode node : perQuery) {
-            JsonNode was = baselineByQuery.get(node.path("id").asText());
+            JsonNode was = baselineByQuery.get(node.path("id").asString());
             if (was != null) {
                 assertThat(node.path("ndcg@10").asDouble())
-                        .as("%s (%s) nDCG@10", node.path("id").asText(), node.path("query").asText())
+                        .as("%s (%s) nDCG@10", node.path("id").asString(), node.path("query").asString())
                         .isGreaterThanOrEqualTo(was.path("ndcg@10").asDouble() - TOLERANCE);
             }
         }
@@ -247,7 +246,7 @@ class RankingEvaluationTest extends RecallTestBase {
         sorted.sort((a, b) -> Double.compare(a.path("ndcg@10").asDouble(), b.path("ndcg@10").asDouble()));
         sorted.stream().limit(5)
                 .forEach(node -> sb.append("    ").append(String.format("%.3f", node.path("ndcg@10").asDouble()))
-                        .append("  ").append(node.path("query").asText()).append('\n'));
+                        .append("  ").append(node.path("query").asString()).append('\n'));
         return sb.toString();
     }
 }

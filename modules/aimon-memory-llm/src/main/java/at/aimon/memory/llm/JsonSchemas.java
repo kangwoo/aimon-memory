@@ -5,8 +5,8 @@ import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
 import java.util.List;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Derives a strict JSON Schema from a Java record.

@@ -40,9 +40,9 @@ class OpenAiEmbedderTest {
             new OpenAiEmbedder(properties(server.baseUrl(), 96, 1)).embed("hello", EmbedPurpose.DOCUMENT);
 
             var body = server.requests().get(0);
-            assertThat(body.path("encoding_format").asText()).isEqualTo("float");
+            assertThat(body.path("encoding_format").asString()).isEqualTo("float");
             assertThat(body.path("dimensions").asInt()).isEqualTo(DIMENSIONS);
-            assertThat(body.path("model").asText()).isEqualTo("text-embedding-3-small");
+            assertThat(body.path("model").asString()).isEqualTo("text-embedding-3-small");
         }
     }
 
@@ -87,7 +87,7 @@ class OpenAiEmbedderTest {
                     EmbedPurpose.DOCUMENT);
 
             assertThat(vectors).hasSize(2);
-            assertThat(server.requests().get(0).path("input").get(1).asText()).hasSizeLessThan(enormous.length());
+            assertThat(server.requests().get(0).path("input").get(1).asString()).hasSizeLessThan(enormous.length());
         }
     }
 
@@ -98,7 +98,7 @@ class OpenAiEmbedderTest {
             new OpenAiEmbedder(properties(server.baseUrl(), 96, 1)).embedBatch(List.of("", "   "),
                     EmbedPurpose.DOCUMENT);
 
-            assertThat(server.requests().get(0).path("input").get(0).asText()).isNotEmpty();
+            assertThat(server.requests().get(0).path("input").get(0).asString()).isNotEmpty();
         }
     }
 

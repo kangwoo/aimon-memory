@@ -62,6 +62,18 @@ first release goes out.
 
 ### Changed
 
+- **Every line of code this build writes now speaks Jackson 3 (`tools.jackson`).** Taking Boot 4 moved
+  HTTP message conversion to Jackson 3 while eight modules stayed on Jackson 2; that split is closed
+  and `spring-boot-jackson2` is gone. Published public signatures moved with it —
+  `at.aimon.memory.llm.Json`'s `mapper()`, `object()` and `read()` now take and return
+  `tools.jackson.databind` types. No artifact is on Central yet, so there is no consumer to break.
+- Jackson 3 redefined `asString`, `asInt` and `asBoolean` from "coerce, falling back to a zero value"
+  to "coerce, or raise", and this build keeps that strictness: a provider answering in the wrong
+  shape now fails instead of degrading to an empty answer. The failure arrives as
+  `LlmException("bad_json")` or `RemoteMemoryException`, so it still travels the fallback chain and
+  the error mapping. The reasoning and the measured table are in ADR 0001's 2026-09-21 addendum.
+- `FAIL_ON_TRAILING_TOKENS` and `FAIL_ON_NULL_FOR_PRIMITIVES` stay enabled on `Json`'s mapper
+  (Jackson 3's defaults). Prose appended after a JSON object is no longer discarded silently.
 - The product was renamed from `dyad` to `aimon-memory`. Packages `dev.dyad.*` →
   `at.aimon.memory.*`, configuration keys `dyad.*` → `aimon.memory.*`, environment variables
   `DYAD_*` → `AIMON_MEMORY_*`, Micrometer metric names `dyad_queue_pending` →

@@ -14,7 +14,14 @@ dependencies {
     implementation(project(":aimon-memory-embed"))
     implementation("org.springframework.boot:spring-boot")
     implementation(project(":aimon-memory-text"))
-    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("tools.jackson.core:jackson-databind")
+    // Declared although jackson-databind already brings it: `DerivedConclusions` and `DreamOutput`
+    // import `com.fasterxml.jackson.annotation.JsonIgnoreProperties`, and Jackson 3 deliberately left
+    // the annotations at their Jackson 2 coordinate. Before the Jackson 3 move the declared and the
+    // imported artifact were the same one; now they are different products, and leaving it transitive
+    // is the kind of disagreement between the declared graph and the real one that the comment in
+    // `aimon-memory-api/build.gradle.kts` calls a defect.
+    implementation("com.fasterxml.jackson.core:jackson-annotations")
     implementation("org.springframework:spring-context")
     implementation("org.springframework:spring-tx")
 

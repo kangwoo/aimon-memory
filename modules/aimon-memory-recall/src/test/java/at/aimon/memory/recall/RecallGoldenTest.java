@@ -8,16 +8,15 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.key.PairKey;
 import at.aimon.memory.core.model.ConclusionLevel;
 import at.aimon.memory.core.model.ScoredConclusion;
 import at.aimon.memory.testkit.golden.GoldenFixtures;
 import at.aimon.memory.testkit.golden.Precision;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The I3 gate: every signal and the fused score, to six decimal places, with zero rank inversions.
@@ -69,7 +68,7 @@ class RecallGoldenTest extends RecallTestBase {
         JsonNode expected = fixtures.load("recall-seoul-bank");
         JsonNode actual = snapshot(response);
 
-        assertThat(actual.path("analyzed_query").asText()).isEqualTo(expected.path("analyzed_query").asText());
+        assertThat(actual.path("analyzed_query").asString()).isEqualTo(expected.path("analyzed_query").asString());
 
         ArrayNode expectedHits = (ArrayNode) expected.path("hits");
         ArrayNode actualHits = (ArrayNode) actual.path("hits");
@@ -78,10 +77,11 @@ class RecallGoldenTest extends RecallTestBase {
         for (int i = 0; i < expectedHits.size(); i++) {
             JsonNode want = expectedHits.get(i);
             JsonNode got = actualHits.get(i);
-            String at = "rank " + i + " (" + want.path("content").asText() + ")";
+            String at = "rank " + i + " (" + want.path("content").asString() + ")";
 
             // Rank inversions must be zero, so content is compared positionally.
-            assertThat(got.path("content").asText()).as("%s: ordering", at).isEqualTo(want.path("content").asText());
+            assertThat(got.path("content").asString()).as("%s: ordering", at)
+                    .isEqualTo(want.path("content").asString());
 
             for (String signal : List.of("sem", "kw", "ent", "reinf", "rec", "lvl", "score")) {
                 Precision.assertMatches(at + " " + signal, got.path(signal).asDouble(), want.path(signal));

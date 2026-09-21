@@ -4,9 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import at.aimon.memory.core.spi.llm.ResponseFormat;
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
@@ -15,6 +12,8 @@ import at.aimon.memory.llm.backend.ChatTurn;
 import at.aimon.memory.llm.backend.ToolResult;
 import at.aimon.memory.llm.backend.ToolSpec;
 import at.aimon.memory.llm.backend.ToolUse;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Content-addressed fixture identity: SHA-256 over {@code (model, system, messages, tools,

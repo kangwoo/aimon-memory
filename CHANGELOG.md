@@ -51,6 +51,18 @@
 
 ### 변경
 
+- **이 빌드가 작성하는 코드가 전부 Jackson 3(`tools.jackson`)을 쓴다.** Boot 4 를 받으면서 HTTP 메시지
+  변환만 Jackson 3 으로 가고 여덟 모듈은 Jackson 2 에 남아 있었는데, 그 갈라짐을 닫았다.
+  `spring-boot-jackson2` 는 빠졌다. 발행되는 모듈의 공개 시그니처도 함께 움직인다 —
+  `at.aimon.memory.llm.Json` 의 `mapper()`·`object()`·`read()` 는 이제 `tools.jackson.databind` 타입을
+  주고받는다. 아직 Central 에 올라간 아티팩트가 없으므로 깨질 소비자는 없다.
+- Jackson 3 은 `asString`·`asInt`·`asBoolean` 을 "강제변환하되 안 되면 zero value" 에서 "강제변환하되
+  안 되면 예외" 로 재정의했고, 이 빌드는 그 엄격함을 유지한다. 제공자가 엉뚱한 모양으로 답하면 빈
+  답변으로 degrade 하는 대신 실패한다. 다만 그 실패는 `LlmException("bad_json")` 이나
+  `RemoteMemoryException` 으로 도착하므로 fallback 체인과 오류 매핑을 그대로 통과한다. 근거와 실측
+  표는 ADR 0001 의 2026-09-21 덧붙임에 있다.
+- `Json` 의 매퍼에서 `FAIL_ON_TRAILING_TOKENS` 와 `FAIL_ON_NULL_FOR_PRIMITIVES` 가 켜진 채로 남는다
+  (Jackson 3 기본값). JSON 뒤에 덧붙은 산문은 더 이상 조용히 버려지지 않는다.
 - 제품명이 `dyad` 에서 `aimon-memory` 로 바뀌었다. 패키지는 `dev.dyad.*` → `at.aimon.memory.*`,
   설정 키는 `dyad.*` → `aimon.memory.*`, 환경변수는 `DYAD_*` → `AIMON_MEMORY_*`, Micrometer 메트릭
   이름은 `dyad_queue_pending` → `aimon_memory_queue_pending`. 대시보드의 PromQL 도 함께 움직였다.

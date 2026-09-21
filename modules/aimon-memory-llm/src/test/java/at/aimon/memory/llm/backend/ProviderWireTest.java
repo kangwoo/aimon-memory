@@ -13,11 +13,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 
 import at.aimon.memory.core.spi.llm.ResponseFormat;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * What actually goes on the wire.
@@ -87,8 +87,8 @@ class ProviderWireTest {
         backend.chat(structuredCall());
 
         JsonNode body = captured.get();
-        assertThat(body.path("output_config").path("format").path("type").asText()).isEqualTo("json_schema");
-        assertThat(body.path("output_config").path("format").path("schema").path("required").get(0).asText())
+        assertThat(body.path("output_config").path("format").path("type").asString()).isEqualTo("json_schema");
+        assertThat(body.path("output_config").path("format").path("schema").path("required").get(0).asString())
                 .isEqualTo("answer");
     }
 
@@ -105,8 +105,8 @@ class ProviderWireTest {
 
         JsonNode messages = captured.get().path("messages");
         assertThat(messages).hasSize(1);
-        assertThat(messages.get(0).path("role").asText()).isEqualTo("user");
-        assertThat(captured.get().path("system").asText()).isEqualTo("You extract facts.");
+        assertThat(messages.get(0).path("role").asString()).isEqualTo("user");
+        assertThat(captured.get().path("system").asString()).isEqualTo("You extract facts.");
     }
 
     @Test
@@ -115,7 +115,7 @@ class ProviderWireTest {
 
         var response = backend.chat(structuredCall());
 
-        assertThat(captured.get().path("model").asText()).isEqualTo("claude-opus-5");
+        assertThat(captured.get().path("model").asString()).isEqualTo("claude-opus-5");
         assertThat(captured.get().has("max_tokens")).isTrue();
         assertThat(response.text()).contains("seoul");
     }
@@ -131,8 +131,8 @@ class ProviderWireTest {
 
         JsonNode tools = captured.get().path("tools");
         assertThat(tools).hasSize(1);
-        assertThat(tools.get(0).path("name").asText()).isEqualTo("recall");
-        assertThat(tools.get(0).path("input_schema").path("type").asText()).isEqualTo("object");
+        assertThat(tools.get(0).path("name").asString()).isEqualTo("recall");
+        assertThat(tools.get(0).path("input_schema").path("type").asString()).isEqualTo("object");
         assertThat(captured.get().path("messages")).hasSize(1);
     }
 
@@ -193,8 +193,8 @@ class ProviderWireTest {
         backend.chat(structuredCall());
 
         JsonNode format = captured.get().path("response_format");
-        assertThat(format.path("type").asText()).isEqualTo("json_schema");
+        assertThat(format.path("type").asString()).isEqualTo("json_schema");
         assertThat(format.path("json_schema").path("strict").asBoolean()).isTrue();
-        assertThat(format.path("json_schema").path("name").asText()).isEqualTo("answer");
+        assertThat(format.path("json_schema").path("name").asString()).isEqualTo("answer");
     }
 }

@@ -8,7 +8,7 @@ dependencies {
     api(project(":aimon-memory-text"))
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework:spring-context")
-    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("tools.jackson.core:jackson-databind")
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     // `implementation`, not `api`. This was `api` because `Jsonb.of` returned a `PGobject`, which put
