@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import at.aimon.memory.llm.Json;
 import at.aimon.memory.llm.LlmException;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 /** Shared HTTP plumbing for the provider backends. */
@@ -23,6 +24,32 @@ final class HttpSupport {
     private static final Logger log = LoggerFactory.getLogger(HttpSupport.class);
 
     private HttpSupport() {
+    }
+
+    /**
+     * A token count from a provider's {@code usage} block, or {@code 0} when it did not answer with a
+     * number.
+     *
+     * <p>Every other read of a provider response in these backends raises on the wrong shape, on the
+     * argument that an answer read as empty is worse than no answer. A token count is the one field
+     * where that argument does not hold. It is telemetry: it changes nothing about the completion it
+     * arrives with, and an absent {@code usage} block already reads {@code 0} here — so {@code 0} is
+     * this code's existing word for "no count", not a fiction invented to swallow an error. Letting a
+     * gateway that types {@code prompt_tokens} as a string cost the whole answer would spend a
+     * failover, a second provider's bill and the caller's latency on a metric.
+     *
+     * <p>It degrades rather than raises, and says so in the log rather than silently — which is the
+     * half of the Jackson 2 behaviour that was worth keeping and the half that was not. {@code asInt}
+     * still coerces a numeric string, so the common sloppiness costs nothing; only a genuinely
+     * unreadable count reaches the {@code 0}.
+     */
+    static int tokenCount(String provider, JsonNode usage, String field) {
+        try {
+            return usage.path(field).asInt();
+        } catch (JacksonException e) {
+            log.warn("{} reported {} as something that is not a number; recording 0", provider, field);
+            return 0;
+        }
     }
 
     static HttpRequest.Builder request(String url, Map<String, String> headers, Duration timeout, String body) {

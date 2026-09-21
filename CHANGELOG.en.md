@@ -71,7 +71,9 @@ first release goes out.
   to "coerce, or raise", and this build keeps that strictness: a provider answering in the wrong
   shape now fails instead of degrading to an empty answer. The failure arrives as
   `LlmException("bad_json")` or `RemoteMemoryException`, so it still travels the fallback chain and
-  the error mapping. The reasoning and the measured table are in ADR 0001's 2026-09-21 addendum.
+  the error mapping. A provider's token count is the one exception: it is telemetry, so an unreadable
+  one costs the count — it reads `0` — and not the completion it arrived with. The reasoning and the
+  measured table are in ADR 0001's 2026-09-21 addendum.
 - `FAIL_ON_TRAILING_TOKENS` and `FAIL_ON_NULL_FOR_PRIMITIVES` stay enabled on `Json`'s mapper
   (Jackson 3's defaults). Prose appended after a JSON object is no longer discarded silently.
 - The product was renamed from `dyad` to `aimon-memory`. Packages `dev.dyad.*` →

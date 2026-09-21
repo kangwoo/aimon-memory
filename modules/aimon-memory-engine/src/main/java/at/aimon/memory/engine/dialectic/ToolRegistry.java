@@ -134,9 +134,14 @@ public class ToolRegistry {
                          "required":["from","to"],"additionalProperties":false}
                         """, arguments -> {
                     JsonNode node = parse(arguments);
+                    // `asString("")` rather than `asString()`, for the reason every other argument
+                    // here defaults: the model writes these, and under Jackson 3 a `from` that came
+                    // back as an object raises where Jackson 2 gave `""`. `instant` already answers
+                    // every other unusable value with the fallback, and a model that mistypes an
+                    // argument learns nothing from "Tool failed: an internal failure".
                     return renderMessages(messages.byDateRange(pair.workspaceName(), pair.observer(), sessionName,
-                            instant(node.path("from").asString(), Instant.EPOCH),
-                            instant(node.path("to").asString(), Instant.now()), limit(node)));
+                            instant(node.path("from").asString(""), Instant.EPOCH),
+                            instant(node.path("to").asString(""), Instant.now()), limit(node)));
                 });
     }
 
@@ -168,9 +173,9 @@ public class ToolRegistry {
                     // FilterCompiler's TIMESTAMP coercion is written against.
                     Filter window = Filter.and(
                             new Filter.Cmp("last_reinforced_at", FilterOp.GTE,
-                                    instant(node.path("from").asString(), Instant.EPOCH).toString()),
+                                    instant(node.path("from").asString(""), Instant.EPOCH).toString()),
                             new Filter.Cmp("last_reinforced_at", FilterOp.LT,
-                                    instant(node.path("to").asString(), Instant.now()).toString()));
+                                    instant(node.path("to").asString(""), Instant.now()).toString()));
                     var response = recall.recall(
                             new RecallRequest(pair, node.path("query").asString(""), limit(node), window, null, false));
                     return renderHits(response.hits());

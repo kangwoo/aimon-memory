@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import at.aimon.memory.core.spi.EmbedPurpose;
 import at.aimon.memory.core.spi.Embedder;
 import at.aimon.memory.text.TokenCounter;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -136,7 +137,7 @@ public final class OpenAiEmbedder implements Embedder {
             for (int i = 0; i < vector.length; i++) {
                 vector[i] = (float) node.get(i).asDouble();
             }
-        } catch (tools.jackson.core.JacksonException e) {
+        } catch (JacksonException e) {
             // Jackson 2 read a non-numeric element as 0.0, so a provider answering `["0.1", null]`
             // produced a vector that was silently part zeroes — wrong, stored, and searched against.
             // Jackson 3 raises instead; this keeps that raise inside the type the retry loop in

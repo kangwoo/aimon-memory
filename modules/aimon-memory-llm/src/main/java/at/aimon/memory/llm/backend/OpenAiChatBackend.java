@@ -63,9 +63,9 @@ public final class OpenAiChatBackend implements ChatBackend {
         // `hasNonNull` does not exclude a container, and an OpenAI-compatible gateway answering
         // `content` as a parts array is a common enough variant that this is the likeliest shape
         // mismatch in the build. Under Jackson 2 it read as `""`; now it raises, and `Json.shaped` is
-        // what turns that into a failover rather than a 500. The `usage` reads matter for the same
-        // reason in reverse — they are telemetry, and without this a malformed token count would
-        // discard an answer the provider actually returned.
+        // what turns that into a failover rather than a 500. The token counts are deliberately not
+        // read in here: they are telemetry, and `HttpSupport.tokenCount` is where the case for
+        // degrading rather than raising on those alone is written down.
         return Json.shaped("openai", () -> {
             JsonNode message = root.path("choices").path(0).path("message");
             List<ToolUse> uses = new ArrayList<>();
@@ -75,8 +75,8 @@ public final class OpenAiChatBackend implements ChatBackend {
             }
             return new ChatResponse(message.hasNonNull("content") ? message.get("content").asString() : null, uses,
                     root.path("model").asString(call.model()),
-                    new LlmUsage(root.path("usage").path("prompt_tokens").asInt(),
-                            root.path("usage").path("completion_tokens").asInt()),
+                    new LlmUsage(HttpSupport.tokenCount("openai", root.path("usage"), "prompt_tokens"),
+                            HttpSupport.tokenCount("openai", root.path("usage"), "completion_tokens")),
                     root.toString());
         });
     }

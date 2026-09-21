@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -51,7 +52,7 @@ final class MemoryHttp {
      * stated contract is that a failure arrives as {@link RemoteMemoryException}, which is what
      * {@code MemoryHttp.send}'s javadoc builds the "unreachable versus absent" distinction on.
      */
-    static <T> T shaped(String what, java.util.function.Supplier<T> reader) {
+    static <T> T shaped(String what, Supplier<T> reader) {
         try {
             return reader.get();
         } catch (JacksonException e) {

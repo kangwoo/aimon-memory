@@ -116,6 +116,18 @@ fallback chain moves on to the next attempt, which is what should happen when on
 cannot be read. `ProviderShapeDriftTest` pins this, and its failover case was confirmed to fail with
 the wrapping removed before it was kept.
 
+**The strictness stops in one place: a provider's token count.** Every other read raises on the
+argument that an answer read as empty is worse than no answer, and that argument does not hold here.
+A token count is telemetry: it changes nothing about the completion it arrives with, and an absent
+`usage` block already reads `0` — so `0` is this code's existing word for "no count", not a value
+invented to swallow an error. Letting one gateway that types `prompt_tokens` as a string cost the
+whole answer would spend a failover, a second provider's bill and the caller's wait on a metric. So
+`HttpSupport.tokenCount` degrades to `0` instead of raising, and says so in the log rather than
+silently — that is the half of the Jackson 2 behaviour worth keeping, and silence is the half that
+was not. `asInt` still coerces a numeric string, so the common gateway sloppiness costs nothing, and
+only a genuinely unreadable count reaches the `0`. Two cases in `ProviderShapeDriftTest` pin both
+sides.
+
 `FAIL_ON_TRAILING_TOKENS` and `FAIL_ON_NULL_FOR_PRIMITIVES` also flipped their defaults. Both are
 left flipped, with the reason written into `Json` — a model that appends a sentence to its JSON has
 not answered the schema it was given, and reading half of it is how that went unnoticed.

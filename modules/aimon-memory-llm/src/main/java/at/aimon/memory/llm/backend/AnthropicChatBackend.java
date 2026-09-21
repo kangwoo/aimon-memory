@@ -107,7 +107,8 @@ public final class AnthropicChatBackend implements ChatBackend {
 
         // Every read below is of a provider-controlled content block, and under Jackson 3 a block
         // whose `text` is an object rather than a string raises instead of yielding `""`. Wrapped so
-        // that drift fails over to the next provider; see `Json.shaped`.
+        // that drift fails over to the next provider; see `Json.shaped`. The token counts are the one
+        // exception and go through `HttpSupport.tokenCount`, which says why.
         return Json.shaped("anthropic", () -> {
             StringBuilder text = new StringBuilder();
             List<ToolUse> uses = new ArrayList<>();
@@ -123,8 +124,8 @@ public final class AnthropicChatBackend implements ChatBackend {
             }
             String answer = text.toString();
             return new ChatResponse(answer.isEmpty() ? null : answer, uses, root.path("model").asString(call.model()),
-                    new LlmUsage(root.path("usage").path("input_tokens").asInt(),
-                            root.path("usage").path("output_tokens").asInt()),
+                    new LlmUsage(HttpSupport.tokenCount("anthropic", root.path("usage"), "input_tokens"),
+                            HttpSupport.tokenCount("anthropic", root.path("usage"), "output_tokens")),
                     root.toString());
         });
     }

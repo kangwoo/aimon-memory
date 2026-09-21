@@ -59,8 +59,9 @@
 - Jackson 3 은 `asString`·`asInt`·`asBoolean` 을 "강제변환하되 안 되면 zero value" 에서 "강제변환하되
   안 되면 예외" 로 재정의했고, 이 빌드는 그 엄격함을 유지한다. 제공자가 엉뚱한 모양으로 답하면 빈
   답변으로 degrade 하는 대신 실패한다. 다만 그 실패는 `LlmException("bad_json")` 이나
-  `RemoteMemoryException` 으로 도착하므로 fallback 체인과 오류 매핑을 그대로 통과한다. 근거와 실측
-  표는 ADR 0001 의 2026-09-21 덧붙임에 있다.
+  `RemoteMemoryException` 으로 도착하므로 fallback 체인과 오류 매핑을 그대로 통과한다. 예외는
+  제공자의 토큰 카운트 하나다 — 그건 텔레메트리라서 읽히지 않으면 카운트만 `0` 이 되고 같이 온
+  답변은 살아남는다. 근거와 실측 표는 ADR 0001 의 2026-09-21 덧붙임에 있다.
 - `Json` 의 매퍼에서 `FAIL_ON_TRAILING_TOKENS` 와 `FAIL_ON_NULL_FOR_PRIMITIVES` 가 켜진 채로 남는다
   (Jackson 3 기본값). JSON 뒤에 덧붙은 산문은 더 이상 조용히 버려지지 않는다.
 - 제품명이 `dyad` 에서 `aimon-memory` 로 바뀌었다. 패키지는 `dev.dyad.*` → `at.aimon.memory.*`,

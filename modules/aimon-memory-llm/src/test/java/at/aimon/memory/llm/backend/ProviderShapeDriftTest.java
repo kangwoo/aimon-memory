@@ -30,7 +30,8 @@ import at.aimon.memory.llm.LlmException;
  * provider. Under Jackson 2 the same response read as an empty answer and never surfaced at all.
  *
  * <p>Neither of those is what this system promises. These tests pin the third behaviour: the
- * misshapen response is refused, with a code, on a path that still has somewhere to fall back to.
+ * misshapen response is refused, with a code, on a path that still has somewhere to fall back to —
+ * and they pin where that stops, because a provider's token count is not its answer.
  */
 class ProviderShapeDriftTest {
 
@@ -78,12 +79,13 @@ class ProviderShapeDriftTest {
     }
 
     /**
-     * Token counts are telemetry, and under Jackson 2 a malformed one cost a {@code 0}. It now costs
-     * the answer — so it has to cost it as an {@code LlmException}, which is what lets the next
-     * provider answer instead.
+     * The line the strictness stops at. A token count is telemetry, so an unreadable one costs the
+     * count and not the completion it arrived with — refusing here would spend a failover, a second
+     * provider's bill and the caller's wait on a metric. {@code 0} is what an absent {@code usage}
+     * block already reads as, so it is this code's existing word for "no count".
      */
     @Test
-    void anthropicNonNumericUsageIsRefusedWithACode() {
+    void anthropicNonNumericUsageCostsTheCountAndNotTheAnswer() {
         body.set("""
                 {"model":"claude-opus-5",
                  "content":[{"type":"text","text":"hi"}],
@@ -91,8 +93,27 @@ class ProviderShapeDriftTest {
                 """);
         AnthropicChatBackend backend = new AnthropicChatBackend(baseUrl(), "k", "claude-opus-5", Duration.ofSeconds(5));
 
-        assertThatThrownBy(() -> backend.chat(call())).isInstanceOf(LlmException.class)
-                .satisfies(e -> assertThat(((LlmException) e).code()).isEqualTo("bad_json"));
+        ChatResponse response = backend.chat(call());
+
+        assertThat(response.text()).isEqualTo("hi");
+        assertThat(response.usage().promptTokens()).isZero();
+        assertThat(response.usage().completionTokens()).isEqualTo(5);
+    }
+
+    /** A count typed as a numeric string is the common gateway sloppiness, and costs nothing. */
+    @Test
+    void openAiNumericStringUsageStillReadsAsTheNumber() {
+        body.set("""
+                {"model":"gpt-4.1-mini",
+                 "choices":[{"message":{"content":"hi"}}],
+                 "usage":{"prompt_tokens":"12","completion_tokens":3}}
+                """);
+        OpenAiChatBackend backend = new OpenAiChatBackend(baseUrl(), "k", "gpt-4.1-mini", Duration.ofSeconds(5));
+
+        ChatResponse response = backend.chat(call());
+
+        assertThat(response.text()).isEqualTo("hi");
+        assertThat(response.usage().promptTokens()).isEqualTo(12);
     }
 
     /**
