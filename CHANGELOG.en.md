@@ -196,6 +196,15 @@ first release goes out.
 
 ### Fixed
 
+- **Neither application could create its own schema.** Boot 4 split the auto-configurations into a
+  module per technology, moving `FlywayAutoConfiguration` out of `spring-boot-autoconfigure`, so the
+  api and worker modules — which declared only `org.flywaydb:flyway-core` — left
+  `spring.flyway.enabled: true` with nothing to act on. Both processes started, reported UP, and
+  answered the first write with `relation "workspaces" does not exist`. Both now declare
+  `org.springframework.boot:spring-boot-flyway`. Two things hid this from the suite and the new
+  `FlywayAutoConfigurationTest` is written around both: `PostgresSupport` runs Flyway itself, so
+  every test has a migrated schema regardless, and both `@SpringBootTest` bases then set
+  `spring.flyway.enabled=false`. The new test turns it on and asserts on the bean Boot wired.
 - **Pair isolation.** A peer token could name any pair in its workspace, in a request body or a
   query string, and read back another peer's private conclusions. `AuthInterceptor` sees path
   variables and nothing else, so it could not check them. `PairScope` now builds every such key and
