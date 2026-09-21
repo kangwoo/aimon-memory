@@ -168,6 +168,14 @@
 
 ### 수정
 
+- **두 애플리케이션이 자기 스키마를 만들지 못했다.** Boot 4 가 자동설정을 기술별 모듈로 쪼개면서
+  `FlywayAutoConfiguration` 이 `spring-boot-autoconfigure` 밖으로 나갔고, `org.flywaydb:flyway-core`
+  만 선언한 api 와 worker 는 `spring.flyway.enabled: true` 가 작동할 대상을 잃었다. 프로세스는
+  정상 기동해 UP 을 보고한 뒤 첫 쓰기에 `relation "workspaces" does not exist` 로 답했다. 두 모듈이
+  `org.springframework.boot:spring-boot-flyway` 를 선언한다. 테스트가 이걸 놓친 이유는 두 가지였고
+  새 `FlywayAutoConfigurationTest` 는 둘 다 우회한다 — `PostgresSupport` 가 Flyway 를 직접 돌려
+  스키마를 만들어 두고, 두 `@SpringBootTest` 베이스가 `spring.flyway.enabled=false` 로 끈다.
+  그래서 이 테스트는 Flyway 를 켜고 Boot 가 배선한 빈에 대해 단언한다.
 - **쌍 격리.** peer 토큰이 자기 워크스페이스의 임의의 쌍을 요청 본문이나 쿼리 문자열로 지정해 다른
   peer 의 비공개 결론을 읽을 수 있었다. `AuthInterceptor` 는 path 변수만 보기 때문에 확인할 방법이
   없었다. `PairScope` 가 모든 키를 만들고 observer 를 토큰과 대조한다. 컨트롤러가 `PairKey` 를 직접

@@ -22,7 +22,15 @@ dependencies {
     implementation("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
+    // `flyway-core` is the migration engine; `spring-boot-flyway` is what makes Boot run it. Boot 4
+    // split the auto-configurations out of `spring-boot-autoconfigure` into one module per
+    // technology, so `FlywayAutoConfiguration` is no longer on the classpath just because Flyway is.
+    // Without this line `spring.flyway.enabled: true` in `application.yml` has nothing to act on: the
+    // application starts, reports UP, and serves a database with no schema in it. Declared
+    // `implementation` rather than `runtimeOnly` so that `FlywayAutoConfigurationTest` can name the
+    // class it asserts on.
     implementation("org.flywaydb:flyway-core")
+    implementation("org.springframework.boot:spring-boot-flyway")
 
     testImplementation(project(":aimon-memory-testkit"))
     // Both are test-only here, and both were being obtained by accident. `text` came in on the

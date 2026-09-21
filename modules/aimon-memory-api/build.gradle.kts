@@ -32,7 +32,15 @@ dependencies {
     // jar on the classpath as those two libraries' business — not as a second JSON dialect for code
     // written here.
     implementation("io.micrometer:micrometer-registry-prometheus")
+    // `flyway-core` is the migration engine; `spring-boot-flyway` is what makes Boot run it. Boot 4
+    // split the auto-configurations out of `spring-boot-autoconfigure` into one module per
+    // technology, so `FlywayAutoConfiguration` is no longer on the classpath just because Flyway is.
+    // Without this line `spring.flyway.enabled: true` in `application.yml` has nothing to act on: the
+    // application starts, reports UP, and serves a database with no schema in it. Declared
+    // `implementation` rather than `runtimeOnly` so that `FlywayAutoConfigurationTest` can name the
+    // class it asserts on.
     implementation("org.flywaydb:flyway-core")
+    implementation("org.springframework.boot:spring-boot-flyway")
     implementation(libs.findLibrary("springdoc").get())
     implementation(libs.findLibrary("jjwt-api").get())
     runtimeOnly(libs.findLibrary("jjwt-impl").get())
