@@ -9,7 +9,7 @@
 java            = "21"       # virtual threads are GA; bump to 25 when the toolchain is provisioned
 springBoot      = "4.1.1"
 springDepMgmt   = "1.1.7"
-lucene          = "10.5.1"
+lucene          = "10.5.2"
 jtokkit         = "1.1.0"
 testcontainers  = "1.21.4"
 archunit        = "1.5.1"
