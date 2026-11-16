@@ -38,7 +38,7 @@ javaCompat      = "17"
 # five-tier `PeerMemory` API, and it is on Central — so a clone with an empty ~/.m2 resolves it like any other
 # coordinate. That is the property this line exists to hold: nothing on the path from `git clone` to `checkAll`
 # may depend on an artifact only one machine has.
-aimonCore       = "0.2.4"
+aimonCore       = "0.3.4"
 
 # The contract suite's version, deliberately separate from the one above because the artifact is in a different
 # state. `at.aimon.core:aimon-memory-testkit` is published only as `0.3.0-SNAPSHOT`, on Central's snapshot
