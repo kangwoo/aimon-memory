@@ -54,7 +54,7 @@ aimonCore       = "0.2.4"
 #
 # Collapse the two back into one when aimon-core 0.3.0 is *released* to Central and `aimonCore` can name it.
 # The snapshot repository blocks in settings.gradle.kts and build.gradle.kts come out in the same change.
-aimonTestkit    = "0.3.0-SNAPSHOT"
+aimonTestkit    = "0.3.4"
 
 [libraries]
 lucene-core       = { module = "org.apache.lucene:lucene-core",            version.ref = "lucene" }
